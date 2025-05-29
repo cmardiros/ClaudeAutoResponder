@@ -1,0 +1,20 @@
+# Claude Auto Responder - Whitelisted Tools
+# Add one tool name per line
+# Lines starting with # are comments and will be ignored
+# Tool names are case-sensitive and should match exactly as they appear in Claude prompts
+
+Read file
+Read files
+Edit file
+Edit files
+Bash command
+Bash
+Write
+Write file
+Write files
+MultiEdit
+Grep
+Glob
+LS
+WebFetch
+WebSearch
