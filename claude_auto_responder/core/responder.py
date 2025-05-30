@@ -34,6 +34,7 @@ class AutoResponder:
         self.countdown_start_time = 0
         self.countdown_prompt = None
         self.last_focus_state = None  # Track focus state changes
+        self.last_was_monitoring_status = False  # Track if last output was monitoring status
 
     def start_monitoring(self):
         """Start monitoring for Claude prompts"""
@@ -85,6 +86,9 @@ class AutoResponder:
         current_time = time.time()
         
         if self.debug:
+            if self.last_was_monitoring_status:
+                print()  # Add newline
+                self.last_was_monitoring_status = False
             print(f"{_timestamp()} 🔄 Monitoring cycle... (countdown: {self.is_in_countdown})")
             
         # Check if terminal is focused and get the frontmost app
@@ -94,10 +98,26 @@ class AutoResponder:
         # Show focus state changes with colored indicators
         if self.last_focus_state != is_focused:
             if is_focused:
-                print(f"{_timestamp()} 🟢 Monitoring: {frontmost_app}")
+                if self.last_was_monitoring_status:
+                    # Replace the previous line
+                    print(f"\r{' ' * 80}\r{_timestamp()} 🟢 Monitoring: {frontmost_app}", end="", flush=True)
+                else:
+                    # New line
+                    print(f"\n{_timestamp()} 🟢 Monitoring: {frontmost_app}", end="", flush=True)
             else:
-                print(f"{_timestamp()} 🔴 Not monitoring: {frontmost_app or 'Unknown app'}")
+                if self.last_was_monitoring_status:
+                    # Replace the previous line
+                    print(f"\r{' ' * 80}\r{_timestamp()} 🔴 Not monitoring: {frontmost_app or 'Unknown app'}", end="", flush=True)
+                else:
+                    # New line
+                    print(f"\n{_timestamp()} 🔴 Not monitoring: {frontmost_app or 'Unknown app'}", end="", flush=True)
             self.last_focus_state = is_focused
+            self.last_was_monitoring_status = True
+        else:
+            # If this iteration produces non-monitoring output, we need to ensure proper newline
+            if self.last_was_monitoring_status and self.debug:
+                # Any debug output should start on a new line after monitoring status
+                self.last_was_monitoring_status = False
         
         if not is_focused:
             if self.is_in_countdown:
@@ -108,12 +128,18 @@ class AutoResponder:
         window_text = self.detector.get_window_text()
         if not window_text:
             if self.debug:
+                if self.last_was_monitoring_status:
+                    print()  # Add newline
+                    self.last_was_monitoring_status = False
                 print(f"{_timestamp()} 🔍 DEBUG: No window text available")
             if self.is_in_countdown:
                 self._cancel_countdown("No window text available")
             return
         
         if self.debug:
+            if self.last_was_monitoring_status:
+                print()  # Add newline
+                self.last_was_monitoring_status = False
             lines = window_text.split('\n')
             print(f"{_timestamp()} 🔍 DEBUG: Got {len(lines)} lines of text, {len(window_text)} chars total")
 
@@ -158,6 +184,9 @@ class AutoResponder:
             prompt_hash == self._last_prompt_hash and
             not self._recently_cancelled()):
             if self.debug:
+                if self.last_was_monitoring_status:
+                    print()  # Add newline
+                    self.last_was_monitoring_status = False
                 print(f"{_timestamp()} 🔍 DEBUG: Same prompt hash ({prompt_hash}), skipping")
             return
 
@@ -169,11 +198,19 @@ class AutoResponder:
             self.last_processed_text = recent_text
             self._handle_claude_prompt(prompt)
         elif self.debug:
+            if self.last_was_monitoring_status:
+                print()  # Add newline
+                self.last_was_monitoring_status = False
             print(f"{_timestamp()} 🔍 DEBUG: Prompt hash {prompt_hash}, but prompt validation failed")
             print(f"  Prompt elements found: {prompt_elements[-10:]}")
 
     def _handle_claude_prompt(self, prompt: ClaudePrompt):
         """Handle detected Claude prompt - start non-blocking countdown"""
+        # Ensure we start on a new line if previous output was monitoring status
+        if self.last_was_monitoring_status:
+            print()  # Add newline
+            self.last_was_monitoring_status = False
+        
         print(f"{_timestamp()} Detected Claude Code prompt!")
         print(f"{_timestamp()} Tool: {prompt.detected_tool}")
         
@@ -194,6 +231,9 @@ class AutoResponder:
         if elapsed >= self.config.default_timeout:
             # Countdown completed - send response with final validation
             # Clear the countdown line and print completion message
+            if self.last_was_monitoring_status:
+                print()  # Add newline
+                self.last_was_monitoring_status = False
             print(f"\r{' ' * 80}\r{_timestamp()} Sending response...")
             
             # Create final validation callback
@@ -207,6 +247,7 @@ class AutoResponder:
             
             if success:
                 self._clear_detection_state()
+                self.last_was_monitoring_status = False
             else:
                 # If validation failed, cancel countdown and restart detection
                 self._cancel_countdown("Final validation failed before keystroke")
@@ -222,6 +263,9 @@ class AutoResponder:
         if not current_prompt.is_valid:
             # Debug why the prompt disappeared
             if self.debug:
+                if self.last_was_monitoring_status:
+                    print()  # Add newline
+                    self.last_was_monitoring_status = False
                 print(f"\r{_timestamp()} 🔍 DEBUG: Prompt validation failed during countdown")
                 self.parser.parse_prompt(recent_text, debug=True)
             self._cancel_countdown("Claude prompt disappeared")
@@ -239,6 +283,9 @@ class AutoResponder:
         """Cancel active countdown and reset state for immediate re-detection"""
         if self.is_in_countdown:
             # Clear the countdown line and print cancellation message
+            if self.last_was_monitoring_status:
+                print()  # Add newline
+                self.last_was_monitoring_status = False
             print(f"\r{' ' * 80}\r{_timestamp()} 🚫 {reason} - action cancelled")
             self.is_in_countdown = False
             self.countdown_prompt = None
