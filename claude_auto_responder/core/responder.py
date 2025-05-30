@@ -1,6 +1,10 @@
 """Main AutoResponder class"""
 
 import signal
+import sys
+import select
+import termios
+import tty
 import time
 from threading import Event
 
@@ -180,7 +184,7 @@ class AutoResponder:
         self.is_in_countdown = True
         self.countdown_start_time = time.time()
         self.countdown_prompt = prompt
-        print(f"Auto-responding in {int(self.config.default_timeout)}s... (Press Ctrl+C to cancel)", end="", flush=True)
+        print(f"Auto-responding in {int(self.config.default_timeout)}s... (Press Escape to cancel)", end="", flush=True)
     
     def _handle_active_countdown(self, window_text: str, current_time: float):
         """Handle active countdown - check if we should cancel or complete"""
@@ -189,7 +193,8 @@ class AutoResponder:
         
         if elapsed >= self.config.default_timeout:
             # Countdown completed - send response
-            print(f"\r{_timestamp()} Sending response...")
+            # Clear the countdown line and print completion message
+            print(f"\r{' ' * 80}\r{_timestamp()} Sending response...")
             self.keystroke_sender.send_response(self.countdown_prompt.option_to_select)
             self._clear_detection_state()
             self.is_in_countdown = False
@@ -208,13 +213,19 @@ class AutoResponder:
             self._cancel_countdown("Claude prompt disappeared")
             return
         
+        # Check for escape key press
+        if self._check_escape_key():
+            self._cancel_countdown("User cancelled with Escape key")
+            return
+            
         remaining_int = int(remaining)
-        print(f"\rAuto-responding in {remaining_int + 1}s... (Press Ctrl+C to cancel)", end="", flush=True)
+        print(f"\rAuto-responding in {remaining_int + 1}s... (Press Escape to cancel)", end="", flush=True)
 
     def _cancel_countdown(self, reason: str):
         """Cancel active countdown and reset state for immediate re-detection"""
         if self.is_in_countdown:
-            print(f"\r{_timestamp()} 🚫 {reason} - action cancelled")
+            # Clear the countdown line and print cancellation message
+            print(f"\r{' ' * 80}\r{_timestamp()} 🚫 {reason} - action cancelled")
             self.is_in_countdown = False
             self.countdown_prompt = None
             self.countdown_start_time = 0
@@ -239,6 +250,26 @@ class AutoResponder:
         """Send keyboard response (delegates to keystroke sender)"""
         self.keystroke_sender.send_response(option)
 
+    def _check_escape_key(self) -> bool:
+        """Check if escape key was pressed (non-blocking)"""
+        try:
+            # Check if there's input available
+            if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
+                # Set terminal to raw mode to read single characters
+                old_settings = termios.tcgetattr(sys.stdin)
+                try:
+                    tty.setraw(sys.stdin.fileno())
+                    char = sys.stdin.read(1)
+                    # Escape key is ASCII 27 (\x1b)
+                    if ord(char) == 27:
+                        return True
+                finally:
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        except (OSError, ValueError, termios.error):
+            # If we can't check keyboard input, just return False
+            pass
+        return False
+    
     def _signal_handler(self, signum, frame):
         """Handle interrupt signals"""
         print(f"\n{_timestamp()} 🛑 Stopping Claude Auto Responder...")
