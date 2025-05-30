@@ -192,11 +192,25 @@ class AutoResponder:
         remaining = max(0, self.config.default_timeout - elapsed)
         
         if elapsed >= self.config.default_timeout:
-            # Countdown completed - send response
+            # Countdown completed - send response with final validation
             # Clear the countdown line and print completion message
             print(f"\r{' ' * 80}\r{_timestamp()} Sending response...")
-            self.keystroke_sender.send_response(self.countdown_prompt.option_to_select)
-            self._clear_detection_state()
+            
+            # Create final validation callback
+            def final_validation():
+                return self._final_pre_keystroke_validation()
+            
+            success = self.keystroke_sender.send_response(
+                self.countdown_prompt.option_to_select, 
+                final_validation_callback=final_validation
+            )
+            
+            if success:
+                self._clear_detection_state()
+            else:
+                # If validation failed, cancel countdown and restart detection
+                self._cancel_countdown("Final validation failed before keystroke")
+                
             self.is_in_countdown = False
             self.countdown_prompt = None
             return
@@ -270,6 +284,54 @@ class AutoResponder:
             pass
         return False
     
+    def _final_pre_keystroke_validation(self) -> bool:
+        """
+        Critical final validation right before sending keystroke.
+        Checks:
+        1. Terminal is still focused  
+        2. Same window/app is still active
+        3. The Claude prompt is still present and valid
+        """
+        try:
+            # Check 1: Is terminal still focused?
+            frontmost_app = self.detector.get_frontmost_app()
+            is_focused = frontmost_app in self.detector.TERMINAL_BUNDLE_IDS if frontmost_app else False
+            
+            if not is_focused:
+                if self.debug:
+                    print(f"{_timestamp()} 🔍 DEBUG: Final validation failed - terminal not focused (frontmost: {frontmost_app})")
+                return False
+            
+            # Check 2: Can we still get window text?
+            window_text = self.detector.get_window_text()
+            if not window_text:
+                if self.debug:
+                    print(f"{_timestamp()} 🔍 DEBUG: Final validation failed - no window text available")
+                return False
+            
+            # Check 3: Is the Claude prompt still valid?
+            recent_text = _extract_recent_text(window_text)
+            current_prompt = self.parser.parse_prompt(recent_text, debug=False)
+            
+            if not current_prompt.is_valid:
+                if self.debug:
+                    print(f"{_timestamp()} 🔍 DEBUG: Final validation failed - prompt no longer valid")
+                return False
+            
+            # Check 4: Is it the same tool we originally detected?
+            if current_prompt.detected_tool != self.countdown_prompt.detected_tool:
+                if self.debug:
+                    print(f"{_timestamp()} 🔍 DEBUG: Final validation failed - tool changed from {self.countdown_prompt.detected_tool} to {current_prompt.detected_tool}")
+                return False
+            
+            if self.debug:
+                print(f"{_timestamp()} 🔍 DEBUG: Final validation passed - safe to send keystroke")
+            return True
+            
+        except Exception as e:
+            print(f"{_timestamp()} ⚠️  Final validation error: {e}")
+            return False
+
     def _signal_handler(self, signum, frame):
         """Handle interrupt signals"""
         print(f"\n{_timestamp()} 🛑 Stopping Claude Auto Responder...")

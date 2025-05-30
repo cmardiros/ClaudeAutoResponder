@@ -36,12 +36,18 @@ class MacOSKeystrokeSender:
             print(f"{_timestamp()} ⚠️  Swift keystroke failed: {e}")
             return False
 
-    def send_response(self, option: str) -> None:
-        """Send keyboard response for Claude prompt"""
+    def send_response(self, option: str, final_validation_callback=None) -> bool:
+        """Send keyboard response for Claude prompt with final validation"""
         try:
             # Small delay to ensure terminal is ready
             time.sleep(0.5)
             
+            # CRITICAL: Final validation right before sending keystroke
+            if final_validation_callback:
+                if not final_validation_callback():
+                    print(f"{_timestamp()} 🚫 Final validation failed - aborting keystroke")
+                    return False
+                    
             if option == "2":
                 print(f"{_timestamp()} Selecting option 2...")
                 success = self.send_key("2")
@@ -61,7 +67,9 @@ class MacOSKeystrokeSender:
             
             print(f"{_timestamp()} Response sent successfully!")
             print(f"{_timestamp()} Waiting for next prompt...\n")
+            return True
             
         except Exception as e:
             print(f"{_timestamp()} ⚠️  Error sending response: {e}")
             print(f"{_timestamp()} ⚠️  Swift utility error")
+            return False
