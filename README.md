@@ -4,6 +4,28 @@
 
 Tired of returning to the terminal only to find Claude Code was waiting for confirmation? No more.
 
+```
+╭─────────────────────────────────────────────────────────────────────────────────────╮
+│ Edit file                                                                           │
+│ ╭─────────────────────────────────────────────────────────────────────────────────╮ │
+│ │ SharedCode/Additions.swift                                                      │ │
+│ │                                                                                 │ │
+│ │ 200    }                                                                        │ │
+│ │ 201                                                                             │ │
+│ │ 223      // Also check for items that need to be re-linked after updates        │ │
+│ │ 224      var itemsNeedingRelinking = [(updated: T, shouldBeLinkedTo: T)]()      │ │
+│ │ 225                                                                             │ │
+│ │ ...                                                                             │ │
+│ │ 260              } else {                                                       │ │
+│ ╰─────────────────────────────────────────────────────────────────────────────────╯ │
+│ Do you want to make this edit to Additions.swift?                                   │
+│ ❯ 1. Yes                                                                            │
+│   2. Yes, and don't ask again this session (shift+tab)                              │
+│   3. No, and tell Claude what to do differently (esc)                               │
+│                                                                                     │
+╰─────────────────────────────────────────────────────────────────────────────────────╯
+```
+
 This tool automatically responds to Claude Code confirmation prompts, perfect for when you want to leave Claude some autonomous work while you step away. Just keep your terminal as the focused window, and Claude will continue working without interruption.
 
 ## How it works
