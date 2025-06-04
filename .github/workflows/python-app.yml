@@ -41,8 +41,8 @@ jobs:
     
     - name: Run tests
       run: |
-        python run_tests.py
+        python3 run_tests.py
     
     - name: Test CLI help
       run: |
-        python claude_auto_responder.py --help
+        python3 claude_auto_responder.py --help

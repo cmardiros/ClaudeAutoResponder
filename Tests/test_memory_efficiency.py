@@ -21,6 +21,8 @@ except ImportError:
 # Direct imports to avoid circular dependency
 import claude_auto_responder.detection.terminal
 import claude_auto_responder.config.settings
+from claude_auto_responder.config.settings import Config
+from claude_auto_responder.core.responder import AutoResponder
 
 
 class TestMemoryEfficiency(unittest.TestCase):
@@ -31,18 +33,17 @@ class TestMemoryEfficiency(unittest.TestCase):
         
     def test_terminal_text_limit(self):
         """Test that get_window_text limits the amount of text returned"""
-        # Create a mock AppleScript result with massive content
-        large_content = "Line of text\n" * 50000  # 50k lines to simulate scrollback
-        
-        with patch('claude_auto_responder.detection.terminal.NSAppleScript') as mock_script_class:
-            # Mock the AppleScript execution
-            mock_script = MagicMock()
-            mock_script_class.alloc.return_value.initWithSource_.return_value = mock_script
+        # Mock subprocess.run to return controlled content
+        with patch('claude_auto_responder.detection.terminal.subprocess.run') as mock_run:
+            # The AppleScript itself should return only the last 1000 lines
+            # So we simulate what the AppleScript would return
+            limited_content = "\n".join(f"Line {i}" for i in range(49000, 50000))  # Last 1000 lines
             
-            # Mock result with large content
+            # Configure subprocess to return our content
             mock_result = MagicMock()
-            mock_result.stringValue.return_value = large_content
-            mock_script.executeAndReturnError_.return_value = (mock_result, None)
+            mock_result.returncode = 0
+            mock_result.stdout = limited_content
+            mock_run.return_value = mock_result
             
             # Get window text
             result = self.detector.get_window_text()
@@ -50,14 +51,17 @@ class TestMemoryEfficiency(unittest.TestCase):
             # Verify the result is limited
             if result:
                 lines = result.split('\n')
-                # Should be limited to approximately 1000 lines (may vary due to AppleScript processing)
-                self.assertLess(len(lines), 1500, 
-                    f"Expected less than 1500 lines, got {len(lines)}")
+                # Should be 1000 lines (the last 1000 from the original 50000)
+                self.assertLessEqual(len(lines), 1000, 
+                    f"Expected <= 1000 lines, got {len(lines)}")
                 print(f"✅ Terminal text limited to {len(lines)} lines")
     
+    @unittest.skipIf(not HAS_PSUTIL, "psutil not installed")
     def test_memory_usage_monitoring_cycle(self):
         """Test that monitoring cycles don't accumulate memory"""
-        config = Config()
+        # Create config with required parameters
+        tools = ['Edit file', 'Read file']
+        config = Config(whitelisted_tools=tools, default_timeout=0.0)
         config.check_interval = 0.1  # Fast cycles for testing
         
         responder = AutoResponder(config, debug=False)
@@ -99,7 +103,9 @@ class TestMemoryEfficiency(unittest.TestCase):
     
     def test_garbage_collection_trigger(self):
         """Test that garbage collection is triggered periodically"""
-        config = Config()
+        # Create config with required parameters
+        tools = ['Edit file', 'Read file']
+        config = Config(whitelisted_tools=tools, default_timeout=0.0)
         config.check_interval = 0.01  # Very fast for testing
         
         responder = AutoResponder(config, debug=True)

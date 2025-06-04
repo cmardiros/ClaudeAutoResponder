@@ -36,14 +36,13 @@ class TestTerminalDetector(unittest.TestCase):
         self.assertGreater(len(TerminalDetector.TERMINAL_BUNDLE_IDS), 5, 
                           "Should support multiple terminal applications")
     
-    @patch('claude_auto_responder.detection.terminal.NSAppleScript')
-    def test_get_frontmost_app_success(self, mock_applescript):
+    @patch('claude_auto_responder.detection.terminal.subprocess.run')
+    def test_get_frontmost_app_success(self, mock_run):
         """Test successful retrieval of frontmost app"""
-        mock_script = MagicMock()
         mock_result = MagicMock()
-        mock_result.stringValue.return_value = "com.apple.Terminal"
-        mock_script.executeAndReturnError_.return_value = (mock_result, None)
-        mock_applescript.alloc().initWithSource_.return_value = mock_script
+        mock_result.returncode = 0
+        mock_result.stdout = "com.apple.Terminal"
+        mock_run.return_value = mock_result
         
         result = TerminalDetector.get_frontmost_app()
         self.assertEqual(result, "com.apple.Terminal")
@@ -64,15 +63,13 @@ class TestTerminalDetector(unittest.TestCase):
         result = TerminalDetector.is_terminal_focused()
         self.assertFalse(result)
 
-    @patch('claude_auto_responder.detection.terminal.NSAppleScript')
-    def test_get_window_text_success(self, mock_applescript):
+    @patch('claude_auto_responder.detection.terminal.subprocess.run')
+    def test_get_window_text_success(self, mock_run):
         """Test successful window text retrieval"""
-        mock_script = MagicMock()
         mock_result = MagicMock()
-        mock_result.stringValue.return_value = "Sample terminal text"
-        
-        mock_script.executeAndReturnError_.return_value = (mock_result, None)
-        mock_applescript.alloc.return_value.initWithSource_.return_value = mock_script
+        mock_result.returncode = 0
+        mock_result.stdout = "Sample terminal text"
+        mock_run.return_value = mock_result
         
         result = TerminalDetector.get_window_text()
         self.assertEqual(result, "Sample terminal text")
