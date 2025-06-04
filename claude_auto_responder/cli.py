@@ -49,6 +49,12 @@ Examples:
         help="Path to whitelisted tools file (default: whitelisted_tools.txt)"
     )
     
+    parser.add_argument(
+        "--all", "-a",
+        action="store_true",
+        help="Monitor all terminal windows, not just the focused one"
+    )
+    
     args = parser.parse_args()
 
     print("Claude Code Auto Responder")
@@ -78,7 +84,7 @@ Examples:
         sys.exit(1)
 
     # Create and start auto responder
-    responder = AutoResponder(config, debug=args.debug)
+    responder = AutoResponder(config, debug=args.debug, monitor_all=args.all)
     responder.start_monitoring()
 
 

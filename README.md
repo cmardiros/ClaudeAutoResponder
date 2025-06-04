@@ -114,20 +114,35 @@ python3 claude_auto_responder.py --tools "Read file,Edit file"
 # Use custom tools file
 python3 claude_auto_responder.py --tools-file my_tools.txt
 
+# Monitor all terminal windows (not just focused)
+python3 claude_auto_responder.py --all
+
 # Combine options
-python3 claude_auto_responder.py --delay 3 --debug
+python3 claude_auto_responder.py --delay 3 --debug --all
 ```
 
 ## How it Works
 
 1. **Python monitors your terminal** when it's in focus using AppleScript
 2. **Detects Claude prompts** with whitelisted tools using pattern matching
-3. **Shows a countdown** giving you time to cancel (Press Ctrl+C)
+3. **Shows a countdown** giving you time to cancel (Press Escape)
 4. **Swift utility sends keystrokes** using Core Graphics for reliable input
 5. **Automatically selects the best option** ("Yes, and don't ask again" when available)
 6. **Cancels if focus is lost** or the prompt disappears
 
 The tool only responds to prompts with Claude's specific box format (╭─╮│╰─╯) to avoid false positives.
+
+### Multi-Window Monitoring (--all flag)
+
+When using the `--all` flag, the tool monitors ALL terminal windows simultaneously:
+
+1. **Scans all terminal windows** efficiently using incremental text fetching
+2. **Detects prompts in any window** even if it's not currently focused
+3. **Automatically switches focus** to the window with the prompt
+4. **Sends the response** after the countdown
+5. **Restores original focus** to minimize disruption to your workflow
+
+This is perfect when you have multiple Claude Code sessions running in different terminal windows and want to monitor them all without manually switching between them.
 
 ## Architecture
 

@@ -102,3 +102,10 @@ venv.bak/
 # Temporary files
 *.tmp
 *.temp.claude/
+
+# Claude AI
+.claude/
+
+# Test files
+test_*.py
+verify_*.py

@@ -13,6 +13,7 @@ except ImportError as e:
     raise
 
 from .incremental_scanner import IncrementalScanner
+from typing import List, Dict, Any
 
 
 class TerminalDetector:
@@ -191,3 +192,189 @@ class TerminalDetector:
             lines_fetched = lines_to_fetch
             
         return prompt_window
+    
+    @classmethod
+    def get_all_terminal_windows(cls) -> List[Dict[str, Any]]:
+        """Get all open terminal windows with their information"""
+        windows = []
+        
+        try:
+            # Get Terminal.app windows
+            terminal_script = NSAppleScript.alloc().initWithSource_('''
+                set windowList to {}
+                
+                -- Check Terminal.app
+                if application "Terminal" is running then
+                    tell application "Terminal"
+                        repeat with w in windows
+                            set windowInfo to {appName:"Terminal", windowID:id of w, windowIndex:index of w, windowName:name of w}
+                            set end of windowList to windowInfo
+                        end repeat
+                    end tell
+                end if
+                
+                -- Check iTerm2
+                if application "iTerm2" is running then
+                    tell application "iTerm2"
+                        repeat with w in windows
+                            set windowInfo to {appName:"iTerm2", windowID:id of w, windowIndex:index of w, windowName:name of w}
+                            set end of windowList to windowInfo
+                        end repeat
+                    end tell
+                end if
+                
+                return windowList
+            ''')
+            
+            result = terminal_script.executeAndReturnError_(None)
+            if result[0]:
+                # Parse the AppleScript result
+                window_list = result[0]
+                # Convert AppleScript list to Python list
+                for i in range(window_list.numberOfItems()):
+                    item = window_list.descriptorAtIndex_(i + 1)
+                    window_info = {
+                        'app': str(item.descriptorForKeyword_(b'appN').stringValue()),
+                        'id': int(item.descriptorForKeyword_(b'winI').int32Value()),
+                        'index': int(item.descriptorForKeyword_(b'winX').int32Value()),
+                        'name': str(item.descriptorForKeyword_(b'winN').stringValue())
+                    }
+                    windows.append(window_info)
+                    
+        except Exception as e:
+            print(f"🔍 DEBUG: Error getting terminal windows: {e}")
+            
+        return windows
+    
+    @staticmethod
+    def get_window_text_by_id(app_name: str, window_id: int, max_lines: int = 1000) -> Optional[str]:
+        """Get text from a specific terminal window by ID"""
+        try:
+            if app_name == "Terminal":
+                script_source = f'''
+                    tell application "Terminal"
+                        repeat with w in windows
+                            if id of w is {window_id} then
+                                set allContent to contents of selected tab of w
+                                set lineList to paragraphs of allContent
+                                set lineCount to count of lineList
+                                
+                                if lineCount > {max_lines} then
+                                    set startLine to lineCount - {max_lines - 1}
+                                    set visibleContent to items startLine through lineCount of lineList
+                                    set AppleScript's text item delimiters to "\\n"
+                                    set resultText to visibleContent as string
+                                    set AppleScript's text item delimiters to ""
+                                    return resultText
+                                else
+                                    return allContent
+                                end if
+                            end if
+                        end repeat
+                    end tell
+                '''
+            elif app_name == "iTerm2":
+                script_source = f'''
+                    tell application "iTerm2"
+                        repeat with w in windows
+                            if id of w is {window_id} then
+                                set allContent to contents of current session of current tab of w
+                                set lineList to paragraphs of allContent
+                                set lineCount to count of lineList
+                                
+                                if lineCount > {max_lines} then
+                                    set startLine to lineCount - {max_lines - 1}
+                                    set visibleContent to items startLine through lineCount of lineList
+                                    set AppleScript's text item delimiters to "\\n"
+                                    set resultText to visibleContent as string
+                                    set AppleScript's text item delimiters to ""
+                                    return resultText
+                                else
+                                    return allContent
+                                end if
+                            end if
+                        end repeat
+                    end tell
+                '''
+            else:
+                return None
+                
+            script = NSAppleScript.alloc().initWithSource_(script_source)
+            result = script.executeAndReturnError_(None)
+            
+            if result[0]:
+                return str(result[0].stringValue())
+                
+        except Exception as e:
+            print(f"🔍 DEBUG: Error getting window text by ID: {e}")
+            
+        return None
+    
+    @staticmethod
+    def focus_window(app_name: str, window_id: int) -> bool:
+        """Focus a specific terminal window"""
+        try:
+            script_source = f'''
+                tell application "{app_name}"
+                    repeat with w in windows
+                        if id of w is {window_id} then
+                            set index of w to 1
+                            activate
+                            return true
+                        end if
+                    end repeat
+                end tell
+                return false
+            '''
+            
+            script = NSAppleScript.alloc().initWithSource_(script_source)
+            result = script.executeAndReturnError_(None)
+            
+            if result[0]:
+                return result[0].booleanValue()
+                
+        except Exception as e:
+            print(f"🔍 DEBUG: Error focusing window: {e}")
+            
+        return False
+    
+    @staticmethod  
+    def get_focused_window_info() -> Optional[Dict[str, Any]]:
+        """Get information about the currently focused window"""
+        try:
+            script = NSAppleScript.alloc().initWithSource_('''
+                tell application "System Events"
+                    set frontApp to first application process whose frontmost is true
+                    set appName to name of frontApp
+                    set appBundle to bundle identifier of frontApp
+                    
+                    if appName is "Terminal" then
+                        tell application "Terminal"
+                            set w to front window
+                            return {appName:"Terminal", bundleID:appBundle, windowID:id of w, windowName:name of w}
+                        end tell
+                    else if appName is "iTerm2" then
+                        tell application "iTerm2"
+                            set w to current window
+                            return {appName:"iTerm2", bundleID:appBundle, windowID:id of w, windowName:name of w}
+                        end tell
+                    else
+                        return {appName:appName, bundleID:appBundle, windowID:0, windowName:""}
+                    end if
+                end tell
+            ''')
+            
+            result = script.executeAndReturnError_(None)
+            if result[0]:
+                desc = result[0]
+                return {
+                    'app': str(desc.descriptorForKeyword_(b'appN').stringValue()),
+                    'bundle_id': str(desc.descriptorForKeyword_(b'bndl').stringValue()),
+                    'window_id': int(desc.descriptorForKeyword_(b'winI').int32Value()),
+                    'window_name': str(desc.descriptorForKeyword_(b'winN').stringValue())
+                }
+                
+        except Exception as e:
+            print(f"🔍 DEBUG: Error getting focused window info: {e}")
+            
+        return None
