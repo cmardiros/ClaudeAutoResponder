@@ -151,8 +151,8 @@ class TerminalDetector:
         """
         For compatibility - just calls get_window_text with reasonable defaults
         """
-        # Start with fewer lines for incremental approach
-        return TerminalDetector.get_window_text(max_lines=200)
+        # Without incremental scanning, fetch enough for large prompts
+        return TerminalDetector.get_window_text(max_lines=1000)
     
     @classmethod
     def get_all_terminal_windows(cls, debug: bool = False) -> List[Dict[str, Any]]:

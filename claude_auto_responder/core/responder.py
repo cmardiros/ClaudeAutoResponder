@@ -544,12 +544,12 @@ class AutoResponder:
     
     def _get_window_text_incremental(self, window: dict, debug: bool = False) -> Optional[str]:
         """Get text from a specific window - simplified for subprocess approach"""
-        # With subprocess approach, we don't need complex incremental scanning
-        # Just get a reasonable amount of text
+        # Without incremental scanning, we need to fetch enough lines to capture
+        # even very large prompts (e.g., long file edits with many lines)
         return self.detector.get_window_text_by_id(
             window['app'], 
             window['id'], 
-            max_lines=200  # Reasonable default for prompt detection
+            max_lines=1000  # Large enough for big prompts
         )
     
     def _start_multi_window_countdown(self, prompt: ClaudePrompt, window: dict, current_time: float):
