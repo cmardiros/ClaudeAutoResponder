@@ -14,7 +14,6 @@ from ..config.settings import Config
 from ..models.prompt import ClaudePrompt
 from ..detection.terminal import TerminalDetector
 from ..detection.parser import PromptParser
-from ..detection.incremental_scanner import IncrementalScanner
 from ..platform.macos import MacOSKeystrokeSender
 from ..core.utils import _timestamp, _extract_recent_text
 
@@ -191,6 +190,8 @@ class AutoResponder:
         
         # Explicitly clear window_text to help garbage collection
         window_text = None
+        # Force collection of any AppleScript descriptors
+        gc.collect(0)  # Gen 0 only for speed
 
     def _check_text_for_prompt(self, text: str):
         """Check text for Claude prompts - simple bottom-up scan"""
@@ -542,67 +543,14 @@ class AutoResponder:
             self._multi_window_gc_counter = 0
     
     def _get_window_text_incremental(self, window: dict, debug: bool = False) -> Optional[str]:
-        """Get text from a specific window using incremental scanning"""
-        lines_fetched = IncrementalScanner.INITIAL_SCAN_LINES
-        previous_window_text = None
-        
-        while lines_fetched <= IncrementalScanner.MAX_SCAN_LINES:
-            # Clear previous text to free memory
-            if previous_window_text:
-                previous_window_text = None
-            
-            # Fetch text with current line limit
-            window_text = self.detector.get_window_text_by_id(
-                window['app'], 
-                window['id'], 
-                max_lines=lines_fetched
-            )
-            
-            if not window_text:
-                return None
-            
-            # Quick check for prompt indicators
-            has_box_bottom = bool(IncrementalScanner.BOX_BOTTOM_PATTERN.search(window_text))
-            has_caret = bool(IncrementalScanner.CARET_PATTERN.search(window_text))
-            
-            # If no indicators in initial scan, stop
-            if lines_fetched == IncrementalScanner.INITIAL_SCAN_LINES and not (has_box_bottom or has_caret):
-                return window_text  # Return minimal text for monitoring
-            
-            # If we have indicators, check for complete prompt
-            if has_box_bottom and has_caret:
-                # Check if we have a complete box
-                has_box_top = bool(IncrementalScanner.BOX_TOP_PATTERN.search(window_text))
-                has_do_you_want = bool(IncrementalScanner.DO_YOU_WANT_PATTERN.search(window_text))
-                
-                if has_box_top and has_do_you_want:
-                    # Complete prompt found!
-                    if debug:
-                        print(f"{_timestamp()}   ✅ Complete prompt found at {lines_fetched} lines")
-                    return window_text
-                
-                # Need more lines
-                if lines_fetched >= IncrementalScanner.MAX_SCAN_LINES:
-                    if debug:
-                        print(f"{_timestamp()}   ⚠️  Reached max scan limit without finding complete prompt")
-                    return window_text
-                
-                # Store current text before expanding
-                previous_window_text = window_text
-                
-                # Expand
-                lines_fetched = min(
-                    lines_fetched + IncrementalScanner.EXPANSION_INCREMENT,
-                    IncrementalScanner.MAX_SCAN_LINES
-                )
-                if debug:
-                    print(f"{_timestamp()}   📈 Expanding to {lines_fetched} lines...")
-                continue
-            
-            # No indicators, return what we have
-            return window_text
-        
-        return window_text
+        """Get text from a specific window - simplified for subprocess approach"""
+        # With subprocess approach, we don't need complex incremental scanning
+        # Just get a reasonable amount of text
+        return self.detector.get_window_text_by_id(
+            window['app'], 
+            window['id'], 
+            max_lines=200  # Reasonable default for prompt detection
+        )
     
     def _start_multi_window_countdown(self, prompt: ClaudePrompt, window: dict, current_time: float):
         """Start countdown for a prompt in a specific window"""

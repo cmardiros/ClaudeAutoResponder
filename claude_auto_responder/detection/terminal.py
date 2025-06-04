@@ -1,24 +1,15 @@
-"""Terminal detection and text extraction"""
+"""Terminal detection using subprocess to completely eliminate memory leaks"""
 
+import subprocess
 import time
-import gc
-from typing import Optional, Tuple
-
-try:
-    from AppKit import NSWorkspace
-    from Cocoa import NSAppleScript, NSAutoreleasePool
-except ImportError as e:
-    print(f"⚠️  Missing required dependency: {e}")
-    print("\nInstall required packages:")
-    print("pip install pyobjc-framework-Cocoa")
-    raise
-
-from .incremental_scanner import IncrementalScanner
-from typing import List, Dict, Any
+from typing import Optional, List, Dict, Any
 
 
 class TerminalDetector:
-    """Detects and monitors terminal applications"""
+    """
+    Terminal detector that runs ALL AppleScript via subprocess.
+    This completely eliminates memory leaks at the cost of some performance.
+    """
     
     TERMINAL_BUNDLE_IDS = {
         'com.apple.Terminal',
@@ -32,386 +23,307 @@ class TerminalDetector:
         'com.termius-dmg',
         'com.mitchellh.ghostty'
     }
-
+    
+    def __init__(self):
+        self._last_error_time = 0
+        
+    def _run_applescript(self, script: str, timeout: float = 5.0) -> Optional[str]:
+        """
+        Run AppleScript in a subprocess. 
+        Memory is completely freed when the subprocess exits!
+        """
+        try:
+            # Use osascript to run the AppleScript
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            
+            if result.returncode == 0:
+                return result.stdout.strip()
+            else:
+                # Only log errors once per second to avoid spam
+                current_time = time.time()
+                if current_time - self._last_error_time > 1.0:
+                    if result.stderr:
+                        print(f"🔍 DEBUG: AppleScript error: {result.stderr.strip()}")
+                    self._last_error_time = current_time
+                return None
+                
+        except subprocess.TimeoutExpired:
+            print(f"🔍 DEBUG: AppleScript timed out after {timeout}s")
+            return None
+        except Exception as e:
+            current_time = time.time()
+            if current_time - self._last_error_time > 1.0:
+                print(f"🔍 DEBUG: Error running AppleScript: {e}")
+                self._last_error_time = current_time
+            return None
+    
     @staticmethod
     def get_frontmost_app() -> Optional[str]:
         """Get bundle ID of frontmost application"""
+        detector = TerminalDetector()
+        script = '''
+        tell application "System Events"
+            set frontApp to first application process whose frontmost is true
+            return bundle identifier of frontApp
+        end tell
+        '''
+        
+        result = detector._run_applescript(script, timeout=2.0)
+        if result:
+            return result
+            
+        # Fallback to NSWorkspace if needed
         try:
-            # Try AppleScript first - more reliable for focus detection
-            script = NSAppleScript.alloc().initWithSource_('''
-                tell application "System Events"
-                    set frontApp to first application process whose frontmost is true
-                    return bundle identifier of frontApp
-                end tell
-            ''')
-            
-            result = script.executeAndReturnError_(None)
-            if result[0]:
-                bundle_id = str(result[0].stringValue())
-                del script
-                return bundle_id
-            del script
-            
-            # Fallback to NSWorkspace
+            from AppKit import NSWorkspace
             workspace = NSWorkspace.sharedWorkspace()
             app = workspace.frontmostApplication()
             if app:
-                bundle_id = app.bundleIdentifier()
-                return bundle_id
-            return None
-        except Exception as e:
-            print(f"🔍 DEBUG: Error getting frontmost app: {e}")
-            return None
-
+                return app.bundleIdentifier()
+        except:
+            pass
+            
+        return None
+    
     @classmethod
     def is_terminal_focused(cls) -> bool:
         """Check if a terminal app is currently focused"""
         bundle_id = cls.get_frontmost_app()
-        
-        # If we get None, try once more after a small delay
-        if bundle_id is None:
-            time.sleep(0.05)
-            bundle_id = cls.get_frontmost_app()
-        
         return bundle_id in cls.TERMINAL_BUNDLE_IDS if bundle_id else False
-
+    
     @staticmethod
     def get_window_text(max_lines: int = 1000) -> Optional[str]:
-        """Get text from the currently focused terminal window
-        
-        Args:
-            max_lines: Maximum number of lines to retrieve (default 1000)
-        """
-        try:
-            # Use AppleScript to get terminal text
-            script = NSAppleScript.alloc().initWithSource_(f'''
-                tell application "System Events"
-                    set frontApp to first application process whose frontmost is true
-                    set appName to name of frontApp
+        """Get text from the currently focused terminal window"""
+        detector = TerminalDetector()
+        script = f'''
+        tell application "System Events"
+            set frontApp to first application process whose frontmost is true
+            set appName to name of frontApp
+            
+            if appName is "Terminal" then
+                tell application "Terminal"
+                    set allContent to contents of selected tab of front window
+                    set lineList to paragraphs of allContent
+                    set lineCount to count of lineList
                     
-                    if appName is "Terminal" then
-                        tell application "Terminal"
-                            -- Get content and limit to prevent memory issues
-                            set allContent to contents of selected tab of front window
-                            set lineList to paragraphs of allContent
-                            set lineCount to count of lineList
-                            
-                            -- Get last N lines max to prevent memory issues
-                            if lineCount > {max_lines} then
-                                set startLine to lineCount - {max_lines - 1}
-                                set visibleContent to items startLine through lineCount of lineList
-                                -- Join with newlines to preserve line breaks
-                                set AppleScript's text item delimiters to "\\n"
-                                set resultText to visibleContent as string
-                                set AppleScript's text item delimiters to ""
-                                return resultText
-                            else
-                                return allContent
-                            end if
-                        end tell
-                    else if appName is "iTerm2" then
-                        tell application "iTerm2"
-                            -- Get content from current session
-                            set allContent to contents of current session of current tab of current window
-                            set lineList to paragraphs of allContent
-                            set lineCount to count of lineList
-                            
-                            -- Limit to last N lines for memory efficiency
-                            if lineCount > {max_lines} then
-                                set startLine to lineCount - {max_lines - 1}
-                                set visibleContent to items startLine through lineCount of lineList
-                                -- Join with newlines to preserve line breaks
-                                set AppleScript's text item delimiters to "\\n"
-                                set resultText to visibleContent as string
-                                set AppleScript's text item delimiters to ""
-                                return resultText
-                            else
-                                return allContent
-                            end if
-                        end tell
+                    if lineCount > {max_lines} then
+                        set startLine to lineCount - {max_lines - 1}
+                        set visibleContent to items startLine through lineCount of lineList
+                        set AppleScript's text item delimiters to "\\n"
+                        set resultText to visibleContent as string
+                        set AppleScript's text item delimiters to ""
+                        return resultText
                     else
-                        return ""
+                        return allContent
                     end if
                 end tell
-            ''')
-            
-            result = script.executeAndReturnError_(None)
-            if result[0]:
-                text = str(result[0].stringValue())
-                # Explicitly release AppleScript objects
-                del script
-                return text
-            del script
-            return None
-            
-        except Exception as e:
-            print(f"🔍 DEBUG: Error getting window text: {e}")
-            return None
+            else if appName is "iTerm2" then
+                tell application "iTerm2"
+                    set allContent to contents of current session of current tab of current window
+                    set lineList to paragraphs of allContent
+                    set lineCount to count of lineList
+                    
+                    if lineCount > {max_lines} then
+                        set startLine to lineCount - {max_lines - 1}
+                        set visibleContent to items startLine through lineCount of lineList
+                        set AppleScript's text item delimiters to "\\n"
+                        set resultText to visibleContent as string
+                        set AppleScript's text item delimiters to ""
+                        return resultText
+                    else
+                        return allContent
+                    end if
+                end tell
+            else
+                return ""
+            end if
+        end tell
+        '''
+        
+        return detector._run_applescript(script)
     
     @staticmethod
     def get_window_text_incremental(debug: bool = False) -> Optional[str]:
         """
-        Get terminal text using incremental scanning for maximum memory efficiency.
-        Only fetches what's needed to detect prompts.
-        Returns just the prompt window text or None.
+        For compatibility - just calls get_window_text with reasonable defaults
         """
-        # Start with minimal text fetch (50 lines)
-        initial_text = TerminalDetector.get_window_text(max_lines=IncrementalScanner.INITIAL_SCAN_LINES)
-        if not initial_text:
-            return None
-            
-        # Quick scan for prompt indicators
-        prompt_window = IncrementalScanner.find_prompt_window(initial_text, debug)
-        
-        # If no prompt found in initial scan, return the minimal text for monitoring
-        if not prompt_window:
-            # Return initial text so responder can still check for changes
-            return initial_text
-            
-        # If we found a prompt but it might be incomplete, fetch more incrementally
-        lines_fetched = IncrementalScanner.INITIAL_SCAN_LINES
-        max_fetch = IncrementalScanner.MAX_SCAN_LINES
-        
-        while lines_fetched < max_fetch:
-            # Check if we have a complete prompt
-            if IncrementalScanner.BOX_TOP_PATTERN.search(prompt_window):
-                # We have a complete box, return just the prompt window
-                return prompt_window
-                
-            # Need more lines - fetch incrementally
-            lines_to_fetch = min(
-                lines_fetched + IncrementalScanner.EXPANSION_INCREMENT,
-                max_fetch
-            )
-            
-            if debug:
-                print(f"[Terminal] Expanding fetch from {lines_fetched} to {lines_to_fetch} lines")
-                
-            expanded_text = TerminalDetector.get_window_text(max_lines=lines_to_fetch)
-            if not expanded_text:
-                return prompt_window  # Return what we have
-                
-            # Re-scan with more text
-            new_window = IncrementalScanner.find_prompt_window(expanded_text, debug)
-            if not new_window:
-                return prompt_window  # Return previous result
-                
-            prompt_window = new_window
-            lines_fetched = lines_to_fetch
-            
-        return prompt_window
+        # Start with fewer lines for incremental approach
+        return TerminalDetector.get_window_text(max_lines=200)
     
     @classmethod
     def get_all_terminal_windows(cls, debug: bool = False) -> List[Dict[str, Any]]:
         """Get all open terminal windows with their information"""
+        detector = TerminalDetector()
+        script = '''
+        set windowList to {}
+        
+        -- Check Terminal.app
+        if application "Terminal" is running then
+            tell application "Terminal"
+                repeat with w in windows
+                    set windowInfo to "Terminal|" & (id of w) & "|" & (index of w) & "|" & (name of w)
+                    set end of windowList to windowInfo
+                end repeat
+            end tell
+        end if
+        
+        -- Check iTerm2
+        if application "iTerm2" is running then
+            tell application "iTerm2"
+                repeat with w in windows
+                    set windowInfo to "iTerm2|" & (id of w) & "|" & (index of w) & "|" & (name of w)
+                    set end of windowList to windowInfo
+                end repeat
+            end tell
+        end if
+        
+        -- Return as newline-separated string
+        set AppleScript's text item delimiters to "\\n"
+        set resultText to windowList as string
+        set AppleScript's text item delimiters to ""
+        return resultText
+        '''
+        
+        result = detector._run_applescript(script)
         windows = []
         
-        try:
-            # Simpler approach - get windows as strings and parse
-            terminal_script = NSAppleScript.alloc().initWithSource_('''
-                set windowList to {}
-                
-                -- Check Terminal.app
-                if application "Terminal" is running then
-                    tell application "Terminal"
-                        repeat with w in windows
-                            set windowInfo to "Terminal|" & (id of w) & "|" & (index of w) & "|" & (name of w)
-                            set end of windowList to windowInfo
-                        end repeat
-                    end tell
-                end if
-                
-                -- Check iTerm2
-                if application "iTerm2" is running then
-                    tell application "iTerm2"
-                        repeat with w in windows
-                            set windowInfo to "iTerm2|" & (id of w) & "|" & (index of w) & "|" & (name of w)
-                            set end of windowList to windowInfo
-                        end repeat
-                    end tell
-                end if
-                
-                return windowList
-            ''')
-            
-            result = terminal_script.executeAndReturnError_(None)
-            if result[0]:
-                # Parse the AppleScript result
-                window_list = result[0]
-                # Convert AppleScript list to Python list
-                for i in range(window_list.numberOfItems()):
-                    item = window_list.descriptorAtIndex_(i + 1)
-                    try:
-                        # Parse the string format
-                        window_str = str(item.stringValue())
-                        parts = window_str.split('|')
-                        if len(parts) >= 4:
-                            window_info = {
+        if result:
+            for line in result.split('\n'):
+                if line.strip():
+                    parts = line.split('|')
+                    if len(parts) >= 4:
+                        try:
+                            windows.append({
                                 'app': parts[0],
                                 'id': int(parts[1]),
                                 'index': int(parts[2]),
-                                'name': '|'.join(parts[3:])  # Handle names with | in them
-                            }
-                            windows.append(window_info)
-                    except Exception as e:
-                        if debug:
-                            print(f"🔍 DEBUG: Error parsing window item: {e}")
-                        continue
-                # Clean up AppleScript objects
-                del terminal_script
-                    
-        except Exception as e:
-            if debug:
-                print(f"🔍 DEBUG: Error getting terminal windows: {e}")
-            
+                                'name': '|'.join(parts[3:])
+                            })
+                        except:
+                            if debug:
+                                print(f"🔍 DEBUG: Error parsing window: {line}")
+        
         return windows
     
     @staticmethod
     def get_window_text_by_id(app_name: str, window_id: int, max_lines: int = 1000) -> Optional[str]:
         """Get text from a specific terminal window by ID"""
-        try:
-            if app_name == "Terminal":
-                script_source = f'''
-                    tell application "Terminal"
-                        repeat with w in windows
-                            if id of w is {window_id} then
-                                set allContent to contents of selected tab of w
-                                set lineList to paragraphs of allContent
-                                set lineCount to count of lineList
-                                
-                                if lineCount > {max_lines} then
-                                    set startLine to lineCount - {max_lines - 1}
-                                    set visibleContent to items startLine through lineCount of lineList
-                                    set AppleScript's text item delimiters to "\\n"
-                                    set resultText to visibleContent as string
-                                    set AppleScript's text item delimiters to ""
-                                    return resultText
-                                else
-                                    return allContent
-                                end if
-                            end if
-                        end repeat
-                    end tell
-                '''
-            elif app_name == "iTerm2":
-                script_source = f'''
-                    tell application "iTerm2"
-                        repeat with w in windows
-                            if id of w is {window_id} then
-                                set allContent to contents of current session of current tab of w
-                                set lineList to paragraphs of allContent
-                                set lineCount to count of lineList
-                                
-                                if lineCount > {max_lines} then
-                                    set startLine to lineCount - {max_lines - 1}
-                                    set visibleContent to items startLine through lineCount of lineList
-                                    set AppleScript's text item delimiters to "\\n"
-                                    set resultText to visibleContent as string
-                                    set AppleScript's text item delimiters to ""
-                                    return resultText
-                                else
-                                    return allContent
-                                end if
-                            end if
-                        end repeat
-                    end tell
-                '''
-            else:
-                return None
-                
-            script = NSAppleScript.alloc().initWithSource_(script_source)
-            result = script.executeAndReturnError_(None)
+        detector = TerminalDetector()
+        
+        if app_name == "Terminal":
+            script = f'''
+            tell application "Terminal"
+                repeat with w in windows
+                    if id of w is {window_id} then
+                        set allContent to contents of selected tab of w
+                        set lineList to paragraphs of allContent
+                        set lineCount to count of lineList
+                        
+                        if lineCount > {max_lines} then
+                            set startLine to lineCount - {max_lines - 1}
+                            set visibleContent to items startLine through lineCount of lineList
+                            set AppleScript's text item delimiters to "\\n"
+                            set resultText to visibleContent as string
+                            set AppleScript's text item delimiters to ""
+                            return resultText
+                        else
+                            return allContent
+                        end if
+                    end if
+                end repeat
+            end tell
+            '''
+        elif app_name == "iTerm2":
+            script = f'''
+            tell application "iTerm2"
+                repeat with w in windows
+                    if id of w is {window_id} then
+                        set allContent to contents of current session of current tab of w
+                        set lineList to paragraphs of allContent
+                        set lineCount to count of lineList
+                        
+                        if lineCount > {max_lines} then
+                            set startLine to lineCount - {max_lines - 1}
+                            set visibleContent to items startLine through lineCount of lineList
+                            set AppleScript's text item delimiters to "\\n"
+                            set resultText to visibleContent as string
+                            set AppleScript's text item delimiters to ""
+                            return resultText
+                        else
+                            return allContent
+                        end if
+                    end if
+                end repeat
+            end tell
+            '''
+        else:
+            return None
             
-            if result[0]:
-                text = str(result[0].stringValue())
-                del script
-                return text
-                
-            del script
-                
-        except Exception as e:
-            print(f"🔍 DEBUG: Error getting window text by ID: {e}")
-            
-        return None
+        return detector._run_applescript(script)
     
     @staticmethod
     def focus_window(app_name: str, window_id: int) -> bool:
         """Focus a specific terminal window"""
-        try:
-            script_source = f'''
-                tell application "{app_name}"
-                    repeat with w in windows
-                        if id of w is {window_id} then
-                            set index of w to 1
-                            activate
-                            return true
-                        end if
-                    end repeat
-                end tell
-                return false
-            '''
-            
-            script = NSAppleScript.alloc().initWithSource_(script_source)
-            result = script.executeAndReturnError_(None)
-            
-            if result[0]:
-                success = result[0].booleanValue()
-                del script
-                return success
-            del script
-                
-        except Exception as e:
-            print(f"🔍 DEBUG: Error focusing window: {e}")
-            
-        return False
+        detector = TerminalDetector()
+        script = f'''
+        tell application "{app_name}"
+            repeat with w in windows
+                if id of w is {window_id} then
+                    set index of w to 1
+                    activate
+                    return "true"
+                end if
+            end repeat
+        end tell
+        return "false"
+        '''
+        
+        result = detector._run_applescript(script)
+        return result == "true"
     
-    @staticmethod  
+    @staticmethod
     def get_focused_window_info() -> Optional[Dict[str, Any]]:
         """Get information about the currently focused window/app"""
-        try:
-            script = NSAppleScript.alloc().initWithSource_('''
-                tell application "System Events"
-                    set frontApp to first application process whose frontmost is true
-                    set appName to name of frontApp
-                    set appBundle to bundle identifier of frontApp
-                    
-                    if appName is "Terminal" then
-                        tell application "Terminal"
-                            set w to front window
-                            return appName & "|" & appBundle & "|terminal|" & (id of w) & "|" & (name of w)
-                        end tell
-                    else if appName is "iTerm2" then
-                        tell application "iTerm2"
-                            set w to current window
-                            return appName & "|" & appBundle & "|terminal|" & (id of w) & "|" & (name of w)
-                        end tell
-                    else
-                        -- For non-terminal apps, just return app info
-                        return appName & "|" & appBundle & "|other|0|" & appName
-                    end if
+        detector = TerminalDetector()
+        script = '''
+        tell application "System Events"
+            set frontApp to first application process whose frontmost is true
+            set appName to name of frontApp
+            set appBundle to bundle identifier of frontApp
+            
+            if appName is "Terminal" then
+                tell application "Terminal"
+                    set w to front window
+                    return appName & "|" & appBundle & "|terminal|" & (id of w) & "|" & (name of w)
                 end tell
-            ''')
-            
-            result = script.executeAndReturnError_(None)
-            if result[0]:
-                # Parse string result
-                result_str = str(result[0].stringValue())
-                parts = result_str.split('|')
-                if len(parts) >= 5:
-                    info = {
-                        'app': parts[0],
-                        'bundle_id': parts[1],
-                        'app_type': parts[2],  # 'terminal' or 'other'
-                        'window_id': int(parts[3]) if parts[3].isdigit() else 0,
-                        'window_name': '|'.join(parts[4:])  # Handle names with | in them
-                    }
-                    del script
-                    return info
-            del script
-                
-        except Exception as e:
-            print(f"🔍 DEBUG: Error getting focused window info: {e}")
-            
+            else if appName is "iTerm2" then
+                tell application "iTerm2"
+                    set w to current window
+                    return appName & "|" & appBundle & "|terminal|" & (id of w) & "|" & (name of w)
+                end tell
+            else
+                -- For non-terminal apps, just return app info
+                return appName & "|" & appBundle & "|other|0|" & appName
+            end if
+        end tell
+        '''
+        
+        result = detector._run_applescript(script)
+        if result:
+            parts = result.split('|')
+            if len(parts) >= 5:
+                return {
+                    'app': parts[0],
+                    'bundle_id': parts[1],
+                    'app_type': parts[2],  # 'terminal' or 'other'
+                    'window_id': int(parts[3]) if parts[3].isdigit() else 0,
+                    'window_name': '|'.join(parts[4:])  # Handle names with | in them
+                }
+        
         return None
     
     @staticmethod
@@ -420,23 +332,17 @@ class TerminalDetector:
         if not window_info:
             return False
             
-        try:
-            if window_info.get('app_type') == 'terminal' and window_info.get('window_id', 0) > 0:
-                # For terminal windows, use the specific window focus method
-                return TerminalDetector.focus_window(window_info['app'], window_info['window_id'])
-            else:
-                # For non-terminal apps, just activate the app
-                script_source = f'''
-                    tell application "{window_info['app']}"
-                        activate
-                    end tell
-                '''
-                script = NSAppleScript.alloc().initWithSource_(script_source)
-                result = script.executeAndReturnError_(None)
-                success = result[0] is not None
-                del script
-                return success
-                
-        except Exception as e:
-            print(f"🔍 DEBUG: Error restoring focus: {e}")
-            return False
+        detector = TerminalDetector()
+        
+        if window_info.get('app_type') == 'terminal' and window_info.get('window_id', 0) > 0:
+            # For terminal windows, use the specific window focus method
+            return TerminalDetector.focus_window(window_info['app'], window_info['window_id'])
+        else:
+            # For non-terminal apps, just activate the app
+            script = f'''
+            tell application "{window_info['app']}"
+                activate
+            end tell
+            '''
+            result = detector._run_applescript(script)
+            return result is not None
