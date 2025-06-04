@@ -142,6 +142,40 @@ When using the `--all` flag, the tool monitors ALL terminal windows simultaneous
 4. **Sends the response** after the countdown
 5. **Restores original focus** to minimize disruption to your workflow
 
+#### Auto-Focus Behavior
+
+The auto-focus system is designed to be seamless and non-disruptive:
+
+- **Smart Focus Detection**: Captures your current focus (any app, not just terminal) right before switching
+- **Temporary Window Switch**: Only switches to the terminal window that needs a response
+- **Universal Focus Restoration**: Returns focus to your original app after responding, whether it was:
+  - Another terminal window
+  - A text editor (VS Code, Xcode, etc.)
+  - A web browser
+  - Any other macOS application
+- **Memory Optimized**: Uses efficient AppleScript calls and aggressive memory cleanup to prevent growth
+- **Escape Override**: Press Escape during countdown to cancel and restore focus immediately
+
+This means you can be working in any application while multiple Claude Code sessions run in the background. When a prompt appears, the tool will briefly switch to handle it, then return you to exactly where you were working.
+
+#### Example Workflow
+
+```bash
+# Start monitoring all terminal windows
+python3 claude_auto_responder.py --all
+
+# Now you can:
+# 1. Work in VS Code while Claude processes files in Terminal window 1
+# 2. Have another Claude session debugging in iTerm2 window 2  
+# 3. Browse documentation in Safari
+# 4. When any Claude session needs confirmation, the tool will:
+#    - Detect the prompt in the background
+#    - Show countdown notification
+#    - Switch to that terminal window
+#    - Send the response
+#    - Return focus to your VS Code/Safari/etc.
+```
+
 This is perfect when you have multiple Claude Code sessions running in different terminal windows and want to monitor them all without manually switching between them.
 
 ## Architecture

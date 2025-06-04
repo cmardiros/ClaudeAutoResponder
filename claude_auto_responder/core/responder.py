@@ -461,6 +461,11 @@ class AutoResponder:
                 print()  # Add newline
                 self.last_was_monitoring_status = False
                 
+        # If in countdown, handle it first (avoid getting window list)
+        if self.is_in_countdown and self.countdown_window_info:
+            self._handle_multi_window_countdown(current_time)
+            return
+            
         # Get all terminal windows
         windows = self.detector.get_all_terminal_windows(debug=self.debug)
         
@@ -469,15 +474,14 @@ class AutoResponder:
                 print(f"{_timestamp()} 🔍 DEBUG: No terminal windows found")
             return
             
-        # If in countdown, handle it first
-        if self.is_in_countdown and self.countdown_window_info:
-            self._handle_multi_window_countdown(current_time)
-            return
+        # Process windows one at a time to minimize memory usage
+        num_windows = len(windows)
+        for i in range(num_windows):
+            # Extract just the window we need
+            window = windows[i]
             
-        # Scan each window efficiently
-        for i, window in enumerate(windows):
             if self.debug:
-                print(f"\n{_timestamp()} 🔍 Checking window {i+1}/{len(windows)}: {window['name'][:30]}...")
+                print(f"\n{_timestamp()} 🔍 Checking window {i+1}/{num_windows}: {window['name'][:30]}...")
             
             # Get minimal text for this window using incremental scanner
             window_text = self._get_window_text_incremental(window, debug=self.debug)
@@ -506,26 +510,47 @@ class AutoResponder:
                 print(f"\n{_timestamp()} 🎯 Found prompt in {window['app']} window: {window['name']}")
                     
                 self._start_multi_window_countdown(prompt, window, current_time)
-                # Clear window_text to free memory
+                # Clear everything before returning
                 window_text = None
+                window = None
+                windows = None
+                # Force garbage collection after finding prompt
+                gc.collect()
                 return  # Process one prompt at a time
             
-            # Clear window text after each window to prevent memory buildup
+            # Clear window text immediately after use
             window_text = None
+            # Clear the window reference
+            window = None
                 
         # Update monitoring status (only if not debug)
         if not self.debug and current_time % 5 < 0.5:  # Show status every 5 seconds
-            print(f"\r{_timestamp()} 🔍 Monitoring {len(windows)} terminal windows...", end="", flush=True)
+            print(f"\r{_timestamp()} 🔍 Monitoring {num_windows} terminal windows...", end="", flush=True)
             self.last_was_monitoring_status = True
             
-        # Clear windows list after using it
+        # Clear windows list and force collection
         windows = None
+        
+        # Force garbage collection periodically in multi-window mode
+        if hasattr(self, '_multi_window_gc_counter'):
+            self._multi_window_gc_counter += 1
+        else:
+            self._multi_window_gc_counter = 1
+            
+        if self._multi_window_gc_counter >= 10:  # Every 10 cycles
+            gc.collect()
+            self._multi_window_gc_counter = 0
     
     def _get_window_text_incremental(self, window: dict, debug: bool = False) -> Optional[str]:
         """Get text from a specific window using incremental scanning"""
         lines_fetched = IncrementalScanner.INITIAL_SCAN_LINES
+        previous_window_text = None
         
         while lines_fetched <= IncrementalScanner.MAX_SCAN_LINES:
+            # Clear previous text to free memory
+            if previous_window_text:
+                previous_window_text = None
+            
             # Fetch text with current line limit
             window_text = self.detector.get_window_text_by_id(
                 window['app'], 
@@ -561,6 +586,9 @@ class AutoResponder:
                     if debug:
                         print(f"{_timestamp()}   ⚠️  Reached max scan limit without finding complete prompt")
                     return window_text
+                
+                # Store current text before expanding
+                previous_window_text = window_text
                 
                 # Expand
                 lines_fetched = min(

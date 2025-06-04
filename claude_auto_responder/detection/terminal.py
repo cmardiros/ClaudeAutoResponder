@@ -1,11 +1,12 @@
 """Terminal detection and text extraction"""
 
 import time
+import gc
 from typing import Optional, Tuple
 
 try:
     from AppKit import NSWorkspace
-    from Cocoa import NSAppleScript
+    from Cocoa import NSAppleScript, NSAutoreleasePool
 except ImportError as e:
     print(f"⚠️  Missing required dependency: {e}")
     print("\nInstall required packages:")
@@ -46,7 +47,10 @@ class TerminalDetector:
             
             result = script.executeAndReturnError_(None)
             if result[0]:
-                return str(result[0].stringValue())
+                bundle_id = str(result[0].stringValue())
+                del script
+                return bundle_id
+            del script
             
             # Fallback to NSWorkspace
             workspace = NSWorkspace.sharedWorkspace()
@@ -133,7 +137,11 @@ class TerminalDetector:
             
             result = script.executeAndReturnError_(None)
             if result[0]:
-                return str(result[0].stringValue())
+                text = str(result[0].stringValue())
+                # Explicitly release AppleScript objects
+                del script
+                return text
+            del script
             return None
             
         except Exception as e:
@@ -249,6 +257,8 @@ class TerminalDetector:
                         if debug:
                             print(f"🔍 DEBUG: Error parsing window item: {e}")
                         continue
+                # Clean up AppleScript objects
+                del terminal_script
                     
         except Exception as e:
             if debug:
@@ -313,7 +323,11 @@ class TerminalDetector:
             result = script.executeAndReturnError_(None)
             
             if result[0]:
-                return str(result[0].stringValue())
+                text = str(result[0].stringValue())
+                del script
+                return text
+                
+            del script
                 
         except Exception as e:
             print(f"🔍 DEBUG: Error getting window text by ID: {e}")
@@ -341,7 +355,10 @@ class TerminalDetector:
             result = script.executeAndReturnError_(None)
             
             if result[0]:
-                return result[0].booleanValue()
+                success = result[0].booleanValue()
+                del script
+                return success
+            del script
                 
         except Exception as e:
             print(f"🔍 DEBUG: Error focusing window: {e}")
@@ -381,13 +398,16 @@ class TerminalDetector:
                 result_str = str(result[0].stringValue())
                 parts = result_str.split('|')
                 if len(parts) >= 5:
-                    return {
+                    info = {
                         'app': parts[0],
                         'bundle_id': parts[1],
                         'app_type': parts[2],  # 'terminal' or 'other'
                         'window_id': int(parts[3]) if parts[3].isdigit() else 0,
                         'window_name': '|'.join(parts[4:])  # Handle names with | in them
                     }
+                    del script
+                    return info
+            del script
                 
         except Exception as e:
             print(f"🔍 DEBUG: Error getting focused window info: {e}")
@@ -413,7 +433,9 @@ class TerminalDetector:
                 '''
                 script = NSAppleScript.alloc().initWithSource_(script_source)
                 result = script.executeAndReturnError_(None)
-                return result[0] is not None
+                success = result[0] is not None
+                del script
+                return success
                 
         except Exception as e:
             print(f"🔍 DEBUG: Error restoring focus: {e}")
