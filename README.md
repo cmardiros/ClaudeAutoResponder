@@ -2,7 +2,7 @@
 
 *Written by Claude for Claude*
 
-Tired of returning to the terminal only to find Claude Code was waiting for confirmation? No more.
+Tired of Claude Code waiting for your confirmation? This tool automatically responds to ALL Claude prompts across ALL your terminal windows - instantly.
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────╮
@@ -28,19 +28,28 @@ Tired of returning to the terminal only to find Claude Code was waiting for conf
 
 This tool automatically responds to Claude Code confirmation prompts, perfect for when you want to leave Claude some autonomous work while you step away. It monitors ALL your terminal windows by default and responds instantly (0 second delay), so Claude continues working without any interruption.
 
+## Key Features
+
+- **Instant Response**: 0 second delay by default - Claude never waits
+- **Multi-Window Monitoring**: Watches ALL terminal windows simultaneously
+- **Auto-Focus Switching**: Automatically switches to windows needing response
+- **Focus Restoration**: Returns you to your original app after responding
+- **Memory Safe**: Uses subprocess isolation - no memory leaks, runs forever
+- **Escape to Cancel**: Press Escape during countdown to skip a response
+
 ## How it works
 
-This tool monitors your terminal with [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) running and automatically:
-- Detects Claude Code confirmation prompts
-- Chooses **Yes, and don't ask again** when available
-- Falls back to **Yes** for simple confirmations
-- Shows a countdown before responding (so you can cancel if needed)
-- Uses a Swift utility for reliable keystroke sending
+This tool monitors your terminals with [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) running and automatically:
+- Detects Claude Code confirmation prompts across ALL windows
+- Instantly responds with **"Yes, and don't ask again"** when available
+- Falls back to **"Yes"** for simple confirmations
+- Switches window focus only when needed, then restores it
+- Uses subprocess-based AppleScript for zero memory leaks
 
-Perfect for those times when you:
-- Give Claude a complex task and want to grab coffee
-- Need to step away but want Claude to keep working
-- Don't want to babysit the terminal for every file read/edit confirmation
+Perfect for:
+- Running multiple Claude sessions simultaneously
+- Leaving Claude to work autonomously while you do other things
+- Never having to manually confirm file operations again
 
 ## Installation
 
@@ -136,11 +145,11 @@ The tool only responds to prompts with Claude's specific box format (╭─╮�
 
 By default, the tool monitors ALL terminal windows simultaneously:
 
-1. **Scans all terminal windows** efficiently using incremental text fetching
+1. **Scans all terminal windows** every 0.5 seconds
 2. **Detects prompts in any window** even if it's not currently focused
 3. **Automatically switches focus** to the window with the prompt
-4. **Sends the response** after the countdown
-5. **Restores original focus** to minimize disruption to your workflow
+4. **Sends the response** instantly (0 second default delay)
+5. **Restores original focus** to whatever app you were using
 
 #### Auto-Focus Behavior
 
@@ -180,10 +189,11 @@ This is perfect when you have multiple Claude Code sessions running in different
 
 ## Architecture
 
-This is a hybrid Python/Swift application:
+This is a hybrid Python/Swift application with subprocess isolation:
 - **Python (`claude_auto_responder.py`)**: Handles monitoring, detection, and logic
 - **Swift (`send_keys.swift`)**: Handles reliable keystroke sending using Core Graphics
-- **AppleScript**: Used for terminal text reading (built into macOS)
+- **Subprocess AppleScript**: Terminal text reading via `osascript` (zero memory leaks)
+- **No pyobjc NSAppleScript**: All AppleScript runs in isolated subprocesses that free memory on exit
 
 ### Running Tests
 
