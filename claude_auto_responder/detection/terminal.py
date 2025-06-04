@@ -350,7 +350,7 @@ class TerminalDetector:
     
     @staticmethod  
     def get_focused_window_info() -> Optional[Dict[str, Any]]:
-        """Get information about the currently focused window"""
+        """Get information about the currently focused window/app"""
         try:
             script = NSAppleScript.alloc().initWithSource_('''
                 tell application "System Events"
@@ -361,15 +361,16 @@ class TerminalDetector:
                     if appName is "Terminal" then
                         tell application "Terminal"
                             set w to front window
-                            return appName & "|" & appBundle & "|" & (id of w) & "|" & (name of w)
+                            return appName & "|" & appBundle & "|terminal|" & (id of w) & "|" & (name of w)
                         end tell
                     else if appName is "iTerm2" then
                         tell application "iTerm2"
                             set w to current window
-                            return appName & "|" & appBundle & "|" & (id of w) & "|" & (name of w)
+                            return appName & "|" & appBundle & "|terminal|" & (id of w) & "|" & (name of w)
                         end tell
                     else
-                        return appName & "|" & appBundle & "|0|"
+                        -- For non-terminal apps, just return app info
+                        return appName & "|" & appBundle & "|other|0|" & appName
                     end if
                 end tell
             ''')
@@ -379,15 +380,41 @@ class TerminalDetector:
                 # Parse string result
                 result_str = str(result[0].stringValue())
                 parts = result_str.split('|')
-                if len(parts) >= 4:
+                if len(parts) >= 5:
                     return {
                         'app': parts[0],
                         'bundle_id': parts[1],
-                        'window_id': int(parts[2]) if parts[2].isdigit() else 0,
-                        'window_name': '|'.join(parts[3:])  # Handle names with | in them
+                        'app_type': parts[2],  # 'terminal' or 'other'
+                        'window_id': int(parts[3]) if parts[3].isdigit() else 0,
+                        'window_name': '|'.join(parts[4:])  # Handle names with | in them
                     }
                 
         except Exception as e:
             print(f"🔍 DEBUG: Error getting focused window info: {e}")
             
         return None
+    
+    @staticmethod
+    def restore_focus(window_info: Dict[str, Any]) -> bool:
+        """Restore focus to a previously focused window/app"""
+        if not window_info:
+            return False
+            
+        try:
+            if window_info.get('app_type') == 'terminal' and window_info.get('window_id', 0) > 0:
+                # For terminal windows, use the specific window focus method
+                return TerminalDetector.focus_window(window_info['app'], window_info['window_id'])
+            else:
+                # For non-terminal apps, just activate the app
+                script_source = f'''
+                    tell application "{window_info['app']}"
+                        activate
+                    end tell
+                '''
+                script = NSAppleScript.alloc().initWithSource_(script_source)
+                result = script.executeAndReturnError_(None)
+                return result[0] is not None
+                
+        except Exception as e:
+            print(f"🔍 DEBUG: Error restoring focus: {e}")
+            return False

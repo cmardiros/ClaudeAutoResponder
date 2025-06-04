@@ -41,7 +41,6 @@ class AutoResponder:
         self.original_focused_window = None  # Store original focus to restore
         self.last_focus_state = None  # Track focus state changes
         self.last_was_monitoring_status = False  # Track if last output was monitoring status
-        self.window_scan_states = {}  # Track last scan state for each window
 
     def start_monitoring(self):
         """Start monitoring for Claude prompts"""
@@ -81,7 +80,9 @@ class AutoResponder:
                 
                 # Periodic garbage collection to prevent memory buildup
                 cycle_count += 1
-                if cycle_count % 100 == 0:  # Every 100 cycles (50 seconds at default interval)
+                # More frequent GC for multi-window mode since it uses more memory
+                gc_interval = 50 if self.monitor_all else 100
+                if cycle_count % gc_interval == 0:
                     gc.collect()
                     if self.debug:
                         print(f"\n{_timestamp()} 🧹 Performed garbage collection (cycle {cycle_count})")
@@ -97,14 +98,9 @@ class AutoResponder:
             self.stop_event.set()
             
             # If we're in multi-window mode and have switched focus, restore it
-            if (self.monitor_all and self.is_in_countdown and 
-                self.original_focused_window and 
-                self.original_focused_window.get('window_id', 0) > 0):
+            if (self.monitor_all and self.is_in_countdown and self.original_focused_window):
                 try:
-                    self.detector.focus_window(
-                        self.original_focused_window['app'],
-                        self.original_focused_window['window_id']
-                    )
+                    self.detector.restore_focus(self.original_focused_window)
                 except:
                     pass  # Best effort
             
@@ -336,17 +332,23 @@ class AutoResponder:
             print(f"\r{' ' * 80}\r{_timestamp()} 🚫 {reason} - action cancelled")
             
             # Restore focus if we're in multi-window mode
-            if (self.monitor_all and self.original_focused_window and 
-                self.original_focused_window.get('window_id', 0) > 0 and
-                self.countdown_window_info):
+            if (self.monitor_all and self.original_focused_window and self.countdown_window_info):
                 # Only restore if we're not already on the original window
                 current_focus = self.detector.get_focused_window_info()
-                if (current_focus and 
-                    current_focus.get('window_id') != self.original_focused_window['window_id']):
-                    if self.detector.focus_window(
-                        self.original_focused_window['app'],
-                        self.original_focused_window['window_id']
-                    ):
+                needs_restore = False
+                
+                if current_focus and self.original_focused_window:
+                    # For terminal windows, compare window IDs
+                    if (self.original_focused_window.get('app_type') == 'terminal' and 
+                        current_focus.get('window_id') != self.original_focused_window.get('window_id')):
+                        needs_restore = True
+                    # For non-terminal apps, compare app names
+                    elif (self.original_focused_window.get('app_type') == 'other' and 
+                          current_focus.get('app') != self.original_focused_window.get('app')):
+                        needs_restore = True
+                
+                if needs_restore:
+                    if self.detector.restore_focus(self.original_focused_window):
                         print(f"{_timestamp()} ✅ Restored focus to {self.original_focused_window['app']}")
                     else:
                         print(f"{_timestamp()} ⚠️  Could not restore original focus")
@@ -473,85 +475,110 @@ class AutoResponder:
             return
             
         # Scan each window efficiently
-        for window in windows:
-            window_key = f"{window['app']}_{window['id']}"
+        for i, window in enumerate(windows):
+            if self.debug:
+                print(f"\n{_timestamp()} 🔍 Checking window {i+1}/{len(windows)}: {window['name'][:30]}...")
             
             # Get minimal text for this window using incremental scanner
-            window_text = self._get_window_text_incremental(window, debug=False)
+            window_text = self._get_window_text_incremental(window, debug=self.debug)
             
             if not window_text:
+                if self.debug:
+                    print(f"{_timestamp()}   ⚠️  No text retrieved from window")
                 continue
+            
+            if self.debug:
+                lines = window_text.split('\n')
+                print(f"{_timestamp()}   📄 Got {len(lines)} lines, {len(window_text)} chars")
+                # Quick indicators check
+                has_box = '╭─' in window_text or '╰─' in window_text
+                has_caret = '❯' in window_text
+                has_do_you_want = 'do you want' in window_text.lower()
+                if has_box or has_caret or has_do_you_want:
+                    print(f"{_timestamp()}   🎯 Found indicators: box={has_box}, caret={has_caret}, do_you_want={has_do_you_want}")
                 
             # Check for prompt
-            recent_text = _extract_recent_text(window_text)
-            prompt = self.parser.parse_prompt(recent_text, debug=False)
+            # For multi-window mode, use the full window text since we already limited it
+            prompt = self.parser.parse_prompt(window_text, debug=False)
             
             if prompt.is_valid:
                 # Found a prompt! Start countdown for this window
-                if self.debug:
-                    print(f"\n{_timestamp()} 🎯 Found prompt in {window['app']} window: {window['name']}")
+                print(f"\n{_timestamp()} 🎯 Found prompt in {window['app']} window: {window['name']}")
                     
                 self._start_multi_window_countdown(prompt, window, current_time)
+                # Clear window_text to free memory
+                window_text = None
                 return  # Process one prompt at a time
+            
+            # Clear window text after each window to prevent memory buildup
+            window_text = None
                 
-        # Update monitoring status
-        if self.debug and current_time % 5 < 0.5:  # Show status every 5 seconds
+        # Update monitoring status (only if not debug)
+        if not self.debug and current_time % 5 < 0.5:  # Show status every 5 seconds
             print(f"\r{_timestamp()} 🔍 Monitoring {len(windows)} terminal windows...", end="", flush=True)
             self.last_was_monitoring_status = True
+            
+        # Clear windows list after using it
+        windows = None
     
     def _get_window_text_incremental(self, window: dict, debug: bool = False) -> Optional[str]:
         """Get text from a specific window using incremental scanning"""
-        # Start with minimal fetch
-        initial_text = self.detector.get_window_text_by_id(
-            window['app'], 
-            window['id'], 
-            max_lines=IncrementalScanner.INITIAL_SCAN_LINES
-        )
-        
-        if not initial_text:
-            return None
-            
-        # Use incremental scanner to find prompt
-        prompt_window = IncrementalScanner.find_prompt_window(initial_text, debug)
-        
-        if not prompt_window:
-            return initial_text  # Return minimal text for change detection
-            
-        # If we found something, we might need to expand
         lines_fetched = IncrementalScanner.INITIAL_SCAN_LINES
         
-        while lines_fetched < IncrementalScanner.MAX_SCAN_LINES:
-            if IncrementalScanner.BOX_TOP_PATTERN.search(prompt_window):
-                return prompt_window  # Complete prompt found
-                
-            # Expand
-            lines_to_fetch = min(
-                lines_fetched + IncrementalScanner.EXPANSION_INCREMENT,
-                IncrementalScanner.MAX_SCAN_LINES
+        while lines_fetched <= IncrementalScanner.MAX_SCAN_LINES:
+            # Fetch text with current line limit
+            window_text = self.detector.get_window_text_by_id(
+                window['app'], 
+                window['id'], 
+                max_lines=lines_fetched
             )
             
-            expanded_text = self.detector.get_window_text_by_id(
-                window['app'],
-                window['id'],
-                max_lines=lines_to_fetch
-            )
+            if not window_text:
+                return None
             
-            if not expanded_text:
-                return prompt_window
-                
-            new_window = IncrementalScanner.find_prompt_window(expanded_text, debug)
-            if not new_window:
-                return prompt_window
-                
-            prompt_window = new_window
-            lines_fetched = lines_to_fetch
+            # Quick check for prompt indicators
+            has_box_bottom = bool(IncrementalScanner.BOX_BOTTOM_PATTERN.search(window_text))
+            has_caret = bool(IncrementalScanner.CARET_PATTERN.search(window_text))
             
-        return prompt_window
+            # If no indicators in initial scan, stop
+            if lines_fetched == IncrementalScanner.INITIAL_SCAN_LINES and not (has_box_bottom or has_caret):
+                return window_text  # Return minimal text for monitoring
+            
+            # If we have indicators, check for complete prompt
+            if has_box_bottom and has_caret:
+                # Check if we have a complete box
+                has_box_top = bool(IncrementalScanner.BOX_TOP_PATTERN.search(window_text))
+                has_do_you_want = bool(IncrementalScanner.DO_YOU_WANT_PATTERN.search(window_text))
+                
+                if has_box_top and has_do_you_want:
+                    # Complete prompt found!
+                    if debug:
+                        print(f"{_timestamp()}   ✅ Complete prompt found at {lines_fetched} lines")
+                    return window_text
+                
+                # Need more lines
+                if lines_fetched >= IncrementalScanner.MAX_SCAN_LINES:
+                    if debug:
+                        print(f"{_timestamp()}   ⚠️  Reached max scan limit without finding complete prompt")
+                    return window_text
+                
+                # Expand
+                lines_fetched = min(
+                    lines_fetched + IncrementalScanner.EXPANSION_INCREMENT,
+                    IncrementalScanner.MAX_SCAN_LINES
+                )
+                if debug:
+                    print(f"{_timestamp()}   📈 Expanding to {lines_fetched} lines...")
+                continue
+            
+            # No indicators, return what we have
+            return window_text
+        
+        return window_text
     
     def _start_multi_window_countdown(self, prompt: ClaudePrompt, window: dict, current_time: float):
         """Start countdown for a prompt in a specific window"""
-        # Get current focused window to restore later
-        self.original_focused_window = self.detector.get_focused_window_info()
+        # Don't save focused window here - we'll do it right before switching
         
         print(f"{_timestamp()} Detected Claude Code prompt in {window['app']}!")
         print(f"{_timestamp()} Window: {window['name']}")
@@ -577,6 +604,21 @@ class AutoResponder:
             # Time to respond! 
             print(f"\r{' ' * 80}\r{_timestamp()} Switching to window and sending response...")
             
+            # Get current focused window right before switching (not at countdown start)
+            self.original_focused_window = self.detector.get_focused_window_info()
+            
+            if self.debug and self.original_focused_window:
+                print(f"{_timestamp()} 🔍 Current focus: {self.original_focused_window['app']} (type: {self.original_focused_window.get('app_type', 'unknown')})")
+            
+            # Check if we're already on the target window
+            if (self.original_focused_window and 
+                self.original_focused_window.get('app_type') == 'terminal' and
+                self.original_focused_window.get('window_id') == self.countdown_window_info['id']):
+                # Already on the right window, no need to switch
+                if self.debug:
+                    print(f"{_timestamp()} Already on target window")
+                self.original_focused_window = None  # Don't restore since we didn't switch
+            
             # Switch to the window with the prompt
             if self.detector.focus_window(self.countdown_window_info['app'], self.countdown_window_info['id']):
                 # Small delay to ensure focus switch completes
@@ -590,14 +632,11 @@ class AutoResponder:
                     if success:
                         print(f"{_timestamp()} ✅ Response sent successfully")
                         
-                        # Restore original focus
-                        if self.original_focused_window and self.original_focused_window['window_id'] > 0:
+                        # Restore original focus (only if we actually switched)
+                        if self.original_focused_window:
                             time.sleep(0.1)  # Small delay before switching back
-                            if self.detector.focus_window(
-                                self.original_focused_window['app'],
-                                self.original_focused_window['window_id']
-                            ):
-                                print(f"{_timestamp()} ✅ Restored focus to {self.original_focused_window['app']}")
+                            if self.detector.restore_focus(self.original_focused_window):
+                                print(f"{_timestamp()} ✅ Restored focus to {self.original_focused_window['app']} - {self.original_focused_window['window_name']}")
                             else:
                                 print(f"{_timestamp()} ⚠️  Could not restore original focus")
                 else:
