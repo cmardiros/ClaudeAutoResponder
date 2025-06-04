@@ -29,6 +29,12 @@ def main():
     print("🤖 Claude Auto Responder Setup")
     print("==============================\n")
     
+    # Check Python version
+    if sys.version_info < (3, 9):
+        print(f"❌ Python 3.9 or later is required (you have Python {sys.version_info.major}.{sys.version_info.minor})")
+        print("💡 Please upgrade Python or use a newer version")
+        sys.exit(1)
+    
     if not install_requirements():
         sys.exit(1)
     

@@ -82,7 +82,7 @@ pip3 install --user pyobjc-framework-Cocoa
 ## Requirements
 
 - **macOS**: 10.15 or later (for Swift support)
-- **Python**: 3.7 or later
+- **Python**: 3.9 or later (required by pyobjc)
 - **Swift**: Built into macOS (no installation needed)
 - **Terminal**: One of the supported terminal apps
 
