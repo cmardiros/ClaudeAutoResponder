@@ -6,6 +6,7 @@ import select
 import termios
 import tty
 import time
+import gc
 from threading import Event
 
 from ..config.settings import Config
@@ -65,10 +66,18 @@ class AutoResponder:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
+        cycle_count = 0
         try:
             while self.running and not self.stop_event.is_set():
                 self._monitoring_cycle()
                 time.sleep(self.config.check_interval)
+                
+                # Periodic garbage collection to prevent memory buildup
+                cycle_count += 1
+                if cycle_count % 100 == 0:  # Every 100 cycles (50 seconds at default interval)
+                    gc.collect()
+                    if self.debug:
+                        print(f"\n{_timestamp()} 🧹 Performed garbage collection (cycle {cycle_count})")
         except KeyboardInterrupt:
             pass
         finally:
@@ -124,8 +133,8 @@ class AutoResponder:
                 self._cancel_countdown("Terminal lost focus")
             return
 
-        # Get window text every time
-        window_text = self.detector.get_window_text()
+        # Use incremental scanning for maximum memory efficiency
+        window_text = self.detector.get_window_text_incremental(debug=self.debug)
         if not window_text:
             if self.debug:
                 if self.last_was_monitoring_status:
@@ -143,11 +152,20 @@ class AutoResponder:
             lines = window_text.split('\n')
             print(f"{_timestamp()} 🔍 DEBUG: Got {len(lines)} lines of text, {len(window_text)} chars total")
 
-        # Handle active countdown
+        # Handle active countdown - need full text for validation
         if self.is_in_countdown:
-            self._handle_active_countdown(window_text, current_time)
+            # For countdown validation, we need more complete text
+            full_text = self.detector.get_window_text(max_lines=500)
+            if full_text:
+                self._handle_active_countdown(full_text, current_time)
+            else:
+                self._cancel_countdown("Lost terminal text during countdown")
         else:
+            # For normal monitoring, use the incremental text
             self._check_text_for_prompt(window_text)
+        
+        # Explicitly clear window_text to help garbage collection
+        window_text = None
 
     def _check_text_for_prompt(self, text: str):
         """Check text for Claude prompts - simple bottom-up scan"""
@@ -350,7 +368,8 @@ class AutoResponder:
                 return False
             
             # Check 2: Can we still get window text?
-            window_text = self.detector.get_window_text()
+            # For final validation, get enough text to ensure prompt is still there
+            window_text = self.detector.get_window_text(max_lines=500)
             if not window_text:
                 if self.debug:
                     print(f"{_timestamp()} 🔍 DEBUG: Final validation failed - no window text available")
