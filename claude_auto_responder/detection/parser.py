@@ -33,7 +33,8 @@ class PromptParser:
         prompt = ClaudePrompt()
 
         if debug:
-            print(f"{_timestamp()} 🔍 DEBUG: Starting prompt analysis on {len(text.split('\n'))} total lines, using last {capture_lines} lines ({len(recent_text)} chars)")
+            lines = text.split('\n')
+            print(f"{_timestamp()} 🔍 DEBUG: Starting prompt analysis on {len(lines)} total lines, using last {capture_lines} lines ({len(recent_text)} chars)")
 
         # Check for basic elements
         do_you_want_match = self.do_you_want_pattern.search(recent_text)
