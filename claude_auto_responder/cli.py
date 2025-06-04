@@ -14,20 +14,21 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                                    # Use whitelisted_tools.txt, 5s delay
-  %(prog)s --delay 3                          # 3 second delay
+  %(prog)s                                    # Monitor all windows, 0s delay
+  %(prog)s --single                           # Monitor only focused window
+  %(prog)s --delay 3                          # 3 second delay before responding
   %(prog)s --debug                            # Enable debug output
   %(prog)s --tools "Read file,Edit file"      # Override tools (ignore file)
   %(prog)s --tools-file my_tools.txt          # Use custom tools file
-  %(prog)s --delay 10 --debug --tools-file custom.txt  # Combine options
+  %(prog)s --single --delay 5 --debug         # Combine options
         """
     )
     
     parser.add_argument(
         "--delay", "-d", 
         type=float, 
-        default=5.0,
-        help="Response delay in seconds (default: 5.0)"
+        default=0.0,
+        help="Response delay in seconds (default: 0.0)"
     )
     
     parser.add_argument(
@@ -50,9 +51,9 @@ Examples:
     )
     
     parser.add_argument(
-        "--all", "-a",
+        "--single", "-s",
         action="store_true",
-        help="Monitor all terminal windows, not just the focused one"
+        help="Monitor only the focused terminal window (default: monitor all windows)"
     )
     
     args = parser.parse_args()
@@ -84,7 +85,8 @@ Examples:
         sys.exit(1)
 
     # Create and start auto responder
-    responder = AutoResponder(config, debug=args.debug, monitor_all=args.all)
+    # Default is to monitor all windows (opposite of --single flag)
+    responder = AutoResponder(config, debug=args.debug, monitor_all=not args.single)
     responder.start_monitoring()
 
 

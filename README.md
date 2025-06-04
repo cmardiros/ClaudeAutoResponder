@@ -26,7 +26,7 @@ Tired of returning to the terminal only to find Claude Code was waiting for conf
 ╰─────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
-This tool automatically responds to Claude Code confirmation prompts, perfect for when you want to leave Claude some autonomous work while you step away. Just keep your terminal as the focused window, and Claude will continue working without interruption.
+This tool automatically responds to Claude Code confirmation prompts, perfect for when you want to leave Claude some autonomous work while you step away. It monitors ALL your terminal windows by default and responds instantly (0 second delay), so Claude continues working without any interruption.
 
 ## How it works
 
@@ -99,10 +99,13 @@ WebSearch
 ## Command Line Options
 
 ```bash
-# Run with default settings (5 second delay)
+# Run with default settings (monitors all windows, 0 second delay)
 python3 claude_auto_responder.py
 
-# Override timeout
+# Monitor only the focused window
+python3 claude_auto_responder.py --single
+
+# Add a delay before responding (useful for reading the prompt)
 python3 claude_auto_responder.py --delay 3
 
 # Enable debug mode
@@ -114,27 +117,24 @@ python3 claude_auto_responder.py --tools "Read file,Edit file"
 # Use custom tools file
 python3 claude_auto_responder.py --tools-file my_tools.txt
 
-# Monitor all terminal windows (not just focused)
-python3 claude_auto_responder.py --all
-
 # Combine options
-python3 claude_auto_responder.py --delay 3 --debug --all
+python3 claude_auto_responder.py --single --delay 5 --debug
 ```
 
 ## How it Works
 
-1. **Python monitors your terminal** when it's in focus using AppleScript
+1. **Python monitors your terminal windows** using subprocess-based AppleScript execution
 2. **Detects Claude prompts** with whitelisted tools using pattern matching
-3. **Shows a countdown** giving you time to cancel (Press Escape)
+3. **Shows a countdown** giving you time to cancel (Press Escape) - default 0 seconds
 4. **Swift utility sends keystrokes** using Core Graphics for reliable input
 5. **Automatically selects the best option** ("Yes, and don't ask again" when available)
-6. **Cancels if focus is lost** or the prompt disappears
+6. **Switches focus when needed** and restores original focus after responding
 
 The tool only responds to prompts with Claude's specific box format (╭─╮│╰─╯) to avoid false positives.
 
-### Multi-Window Monitoring (--all flag)
+### Multi-Window Monitoring (Default Behavior)
 
-When using the `--all` flag, the tool monitors ALL terminal windows simultaneously:
+By default, the tool monitors ALL terminal windows simultaneously:
 
 1. **Scans all terminal windows** efficiently using incremental text fetching
 2. **Detects prompts in any window** even if it's not currently focused
