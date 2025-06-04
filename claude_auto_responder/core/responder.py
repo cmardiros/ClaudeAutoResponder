@@ -8,6 +8,7 @@ import tty
 import time
 import gc
 from threading import Event
+from typing import Optional
 
 from ..config.settings import Config
 from ..models.prompt import ClaudePrompt
@@ -459,7 +460,7 @@ class AutoResponder:
                 self.last_was_monitoring_status = False
                 
         # Get all terminal windows
-        windows = self.detector.get_all_terminal_windows()
+        windows = self.detector.get_all_terminal_windows(debug=self.debug)
         
         if not windows:
             if self.debug:

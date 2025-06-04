@@ -194,12 +194,12 @@ class TerminalDetector:
         return prompt_window
     
     @classmethod
-    def get_all_terminal_windows(cls) -> List[Dict[str, Any]]:
+    def get_all_terminal_windows(cls, debug: bool = False) -> List[Dict[str, Any]]:
         """Get all open terminal windows with their information"""
         windows = []
         
         try:
-            # Get Terminal.app windows
+            # Simpler approach - get windows as strings and parse
             terminal_script = NSAppleScript.alloc().initWithSource_('''
                 set windowList to {}
                 
@@ -207,7 +207,7 @@ class TerminalDetector:
                 if application "Terminal" is running then
                     tell application "Terminal"
                         repeat with w in windows
-                            set windowInfo to {appName:"Terminal", windowID:id of w, windowIndex:index of w, windowName:name of w}
+                            set windowInfo to "Terminal|" & (id of w) & "|" & (index of w) & "|" & (name of w)
                             set end of windowList to windowInfo
                         end repeat
                     end tell
@@ -217,7 +217,7 @@ class TerminalDetector:
                 if application "iTerm2" is running then
                     tell application "iTerm2"
                         repeat with w in windows
-                            set windowInfo to {appName:"iTerm2", windowID:id of w, windowIndex:index of w, windowName:name of w}
+                            set windowInfo to "iTerm2|" & (id of w) & "|" & (index of w) & "|" & (name of w)
                             set end of windowList to windowInfo
                         end repeat
                     end tell
@@ -233,16 +233,26 @@ class TerminalDetector:
                 # Convert AppleScript list to Python list
                 for i in range(window_list.numberOfItems()):
                     item = window_list.descriptorAtIndex_(i + 1)
-                    window_info = {
-                        'app': str(item.descriptorForKeyword_(b'appN').stringValue()),
-                        'id': int(item.descriptorForKeyword_(b'winI').int32Value()),
-                        'index': int(item.descriptorForKeyword_(b'winX').int32Value()),
-                        'name': str(item.descriptorForKeyword_(b'winN').stringValue())
-                    }
-                    windows.append(window_info)
+                    try:
+                        # Parse the string format
+                        window_str = str(item.stringValue())
+                        parts = window_str.split('|')
+                        if len(parts) >= 4:
+                            window_info = {
+                                'app': parts[0],
+                                'id': int(parts[1]),
+                                'index': int(parts[2]),
+                                'name': '|'.join(parts[3:])  # Handle names with | in them
+                            }
+                            windows.append(window_info)
+                    except Exception as e:
+                        if debug:
+                            print(f"🔍 DEBUG: Error parsing window item: {e}")
+                        continue
                     
         except Exception as e:
-            print(f"🔍 DEBUG: Error getting terminal windows: {e}")
+            if debug:
+                print(f"🔍 DEBUG: Error getting terminal windows: {e}")
             
         return windows
     
@@ -351,28 +361,31 @@ class TerminalDetector:
                     if appName is "Terminal" then
                         tell application "Terminal"
                             set w to front window
-                            return {appName:"Terminal", bundleID:appBundle, windowID:id of w, windowName:name of w}
+                            return appName & "|" & appBundle & "|" & (id of w) & "|" & (name of w)
                         end tell
                     else if appName is "iTerm2" then
                         tell application "iTerm2"
                             set w to current window
-                            return {appName:"iTerm2", bundleID:appBundle, windowID:id of w, windowName:name of w}
+                            return appName & "|" & appBundle & "|" & (id of w) & "|" & (name of w)
                         end tell
                     else
-                        return {appName:appName, bundleID:appBundle, windowID:0, windowName:""}
+                        return appName & "|" & appBundle & "|0|"
                     end if
                 end tell
             ''')
             
             result = script.executeAndReturnError_(None)
             if result[0]:
-                desc = result[0]
-                return {
-                    'app': str(desc.descriptorForKeyword_(b'appN').stringValue()),
-                    'bundle_id': str(desc.descriptorForKeyword_(b'bndl').stringValue()),
-                    'window_id': int(desc.descriptorForKeyword_(b'winI').int32Value()),
-                    'window_name': str(desc.descriptorForKeyword_(b'winN').stringValue())
-                }
+                # Parse string result
+                result_str = str(result[0].stringValue())
+                parts = result_str.split('|')
+                if len(parts) >= 4:
+                    return {
+                        'app': parts[0],
+                        'bundle_id': parts[1],
+                        'window_id': int(parts[2]) if parts[2].isdigit() else 0,
+                        'window_name': '|'.join(parts[3:])  # Handle names with | in them
+                    }
                 
         except Exception as e:
             print(f"🔍 DEBUG: Error getting focused window info: {e}")
