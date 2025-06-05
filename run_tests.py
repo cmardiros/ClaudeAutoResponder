@@ -5,7 +5,6 @@ Test runner for Claude Auto Responder Python version
 
 import unittest
 import sys
-import os
 from pathlib import Path
 
 def main():

@@ -10,6 +10,7 @@ class Config:
     whitelisted_tools: List[str]
     default_timeout: float
     check_interval: float = 1.0
+    enable_sleep_detection: bool = False
 
     @classmethod
     def load_whitelisted_tools(cls, tools_file: str = "whitelisted_tools.txt") -> List[str]:
@@ -57,8 +58,15 @@ class Config:
             
             tools = config_data.get('whitelisted_tools', cls.load_whitelisted_tools())
             timeout = config_data.get('default_timeout', 5.0)
+            check_interval = config_data.get('check_interval', 1.0)
+            enable_sleep_detection = config_data.get('enable_sleep_detection', False)
             
-            return cls(whitelisted_tools=tools, default_timeout=timeout)
+            return cls(
+                whitelisted_tools=tools, 
+                default_timeout=timeout,
+                check_interval=check_interval,
+                enable_sleep_detection=enable_sleep_detection
+            )
         except (FileNotFoundError, json.JSONDecodeError, KeyError):
             # Return default config if file doesn't exist or is invalid
             return cls.get_default()

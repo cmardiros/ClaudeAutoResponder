@@ -53,7 +53,11 @@ class TerminalDetector:
                 return None
                 
         except subprocess.TimeoutExpired:
-            print(f"🔍 DEBUG: AppleScript timed out after {timeout}s")
+            # Only print timeout messages occasionally to reduce spam
+            current_time = time.time()
+            if current_time - self._last_error_time > 30.0:  # Only show every 30 seconds
+                print(f"🔍 DEBUG: AppleScript timed out after {timeout}s")
+                self._last_error_time = current_time
             return None
         except Exception as e:
             current_time = time.time()

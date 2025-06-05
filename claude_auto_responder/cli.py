@@ -56,6 +56,12 @@ Examples:
         help="Monitor only the focused terminal window (default: monitor all windows)"
     )
     
+    parser.add_argument(
+        "--enable-sleep-detection",
+        action="store_true",
+        help="Enable automatic pause/resume on system sleep/wake (experimental)"
+    )
+    
     args = parser.parse_args()
 
     print("Claude Code Auto Responder")
@@ -67,15 +73,25 @@ Examples:
     print()
 
     # Create configuration
+    enable_sleep_detection = args.enable_sleep_detection
+    
     if args.tools:
         # Command line tools override everything
         tools = [tool.strip() for tool in args.tools.split(',')]
-        config = Config(whitelisted_tools=tools, default_timeout=args.delay)
+        config = Config(
+            whitelisted_tools=tools, 
+            default_timeout=args.delay,
+            enable_sleep_detection=enable_sleep_detection
+        )
         print(f"Using command line tools: {', '.join(tools)}")
     else:
         # Load from tools file
         tools = Config.load_whitelisted_tools(args.tools_file)
-        config = Config(whitelisted_tools=tools, default_timeout=args.delay)
+        config = Config(
+            whitelisted_tools=tools, 
+            default_timeout=args.delay,
+            enable_sleep_detection=enable_sleep_detection
+        )
         if args.tools_file != "whitelisted_tools.txt":
             print(f"Using tools from {args.tools_file}: {len(tools)} tools loaded")
 

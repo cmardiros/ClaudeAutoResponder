@@ -15,6 +15,7 @@ from ..models.prompt import ClaudePrompt
 from ..detection.terminal import TerminalDetector
 from ..detection.parser import PromptParser
 from ..platform.macos import MacOSKeystrokeSender
+from ..platform.sleep_detector import SleepDetector
 from ..core.utils import _timestamp, _extract_recent_text
 
 
@@ -28,18 +29,19 @@ class AutoResponder:
         self.parser = PromptParser(config.whitelisted_tools)
         self.detector = TerminalDetector()
         self.keystroke_sender = MacOSKeystrokeSender(debug)
+        self.sleep_detector = SleepDetector()
         self.running = False
         self.stop_event = Event()
         self.last_processed_text = ""
         self.last_response_time = 0
         self.is_in_countdown = False
-        self.current_window_id = ""
         self.countdown_start_time = 0
         self.countdown_prompt = None
         self.countdown_window_info = None  # Store which window has the prompt
         self.original_focused_window = None  # Store original focus to restore
         self.last_focus_state = None  # Track focus state changes
         self.last_was_monitoring_status = False  # Track if last output was monitoring status
+        self.is_paused_for_sleep = False  # Track if monitoring is paused due to sleep
 
     def start_monitoring(self):
         """Start monitoring for Claude prompts"""
@@ -70,11 +72,38 @@ class AutoResponder:
         # Register signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+        
+        # Set up sleep detection callbacks
+        def on_sleep():
+            self.is_paused_for_sleep = True
+            print(f"\n{_timestamp()} 😴 System going to sleep, pausing monitoring...")
+            
+        def on_wake():
+            self.is_paused_for_sleep = False
+            print(f"\n{_timestamp()} 👀 System woke up, resuming monitoring...")
+            # Clear any stale state from before sleep
+            self.is_in_countdown = False
+            self.countdown_prompt = None
+            self.countdown_window_info = None
+            
+        self.sleep_detector.set_callbacks(on_sleep, on_wake)
+        
+        # Start sleep detection if enabled
+        if self.config.enable_sleep_detection:
+            self.sleep_detector.start_monitoring()
+            print(f"💤 Sleep detection enabled")
 
         cycle_count = 0
         try:
             while self.running and not self.stop_event.is_set():
-                self._monitoring_cycle()
+                # Skip monitoring cycle if system is sleeping
+                if not self.is_paused_for_sleep:
+                    self._monitoring_cycle()
+                else:
+                    # Just sleep longer when paused
+                    time.sleep(5.0)
+                    continue
+                    
                 time.sleep(self.config.check_interval)
                 
                 # Periodic garbage collection to prevent memory buildup
@@ -95,6 +124,10 @@ class AutoResponder:
         if self.running:  # Only print message if we were actually running
             self.running = False
             self.stop_event.set()
+            
+            # Stop sleep detection
+            if self.config.enable_sleep_detection:
+                self.sleep_detector.stop_monitoring()
             
             # If we're in multi-window mode and have switched focus, restore it
             if (self.monitor_all and self.is_in_countdown and self.original_focused_window):

@@ -5,7 +5,6 @@ import time
 import psutil
 import subprocess
 import sys
-import os
 from datetime import datetime
 
 
