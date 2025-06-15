@@ -5,6 +5,7 @@ Test suite for AutoResponder main functionality
 
 import unittest
 import sys
+import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -37,8 +38,12 @@ class TestAutoResponder(unittest.TestCase):
         self.responder._send_response("1")
         
         # Should call enter to confirm
+        expected_script_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "send_keys.swift"
+        )
         mock_subprocess.assert_called_with(
-            ['swift', '/Users/fahad/Developer/ClaudeAutoResponder/send_keys.swift', 'enter'],
+            ['swift', expected_script_path, 'enter'],
             capture_output=True, text=True, timeout=5
         )
 
@@ -49,10 +54,14 @@ class TestAutoResponder(unittest.TestCase):
         self.responder._send_response("2")
         
         # Should call option 2 key then enter
+        expected_script_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "send_keys.swift"
+        )
         expected_calls = [
-            unittest.mock.call(['swift', '/Users/fahad/Developer/ClaudeAutoResponder/send_keys.swift', '2'], 
+            unittest.mock.call(['swift', expected_script_path, '2'], 
                               capture_output=True, text=True, timeout=5),
-            unittest.mock.call(['swift', '/Users/fahad/Developer/ClaudeAutoResponder/send_keys.swift', 'enter'], 
+            unittest.mock.call(['swift', expected_script_path, 'enter'], 
                               capture_output=True, text=True, timeout=5)
         ]
         mock_subprocess.assert_has_calls(expected_calls)
