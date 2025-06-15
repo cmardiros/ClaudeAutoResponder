@@ -1,5 +1,6 @@
 """macOS-specific platform implementations"""
 
+import os
 import subprocess
 import time
 from ..core.utils import _timestamp
@@ -10,7 +11,9 @@ class MacOSKeystrokeSender:
     
     def __init__(self, debug: bool = False):
         self.debug = debug
-        self.script_path = "/Users/fahad/Developer/ClaudeAutoResponder/send_keys.swift"
+        # Get the script path relative to the current file location
+        current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.script_path = os.path.join(current_dir, "send_keys.swift")
 
     def send_key(self, key_name: str) -> bool:
         """Send a key press using Swift utility"""
