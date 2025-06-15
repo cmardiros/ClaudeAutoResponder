@@ -1,0 +1,92 @@
+name: 🐛 Bug Report
+description: Report broken or unexpected behavior
+title: "[Bug]: "
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What is broken or not working as expected?
+      placeholder: Describe the specific issue clearly and concisely
+    validations:
+      required: true
+      
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps to recreate this issue
+      placeholder: |
+        1. [First action]
+        2. [Second action]
+        3. [Third action]
+        4. [Observed issue]
+        
+        Include specific details like:
+        - Terminal: shell type (zsh/bash), prompt format, cursor position
+        - Claude Code: active session state, model being used, command being executed
+        - Python: script execution context, virtual environment, CLI arguments used
+        - macOS: Terminal app (Terminal.app/iTerm2), accessibility permissions, system state
+    validations:
+      required: true
+      
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should happen instead?
+      placeholder: Describe the correct behavior that should occur
+    validations:
+      required: true
+      
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: Describe exactly what you observed, including any error messages
+    validations:
+      required: true
+      
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification Criteria
+      description: How to verify when this bug is fixed
+      placeholder: |
+        **GIVEN** [initial conditions or setup required]
+        **WHEN** [specific action is performed]  
+        **THEN** [expected outcome should occur]
+        **AND** [additional verification points if needed]
+    validations:
+      required: true
+      
+  - type: textarea
+    id: context
+    attributes:
+      label: Environment & Context
+      description: Technical details relevant to reproducing this issue
+      placeholder: |
+        Include relevant context such as:
+        - macOS version: (e.g., macOS Sonoma 14.5)
+        - Terminal app: (Terminal.app, iTerm2, etc.)
+        - Shell: (zsh, bash, fish)
+        - Python version: (e.g., 3.11.5)
+        - Virtual environment: (venv, conda, etc.)
+        - ClaudeAutoResponder version/commit
+        - Claude Code version/commit if applicable
+        - Accessibility permissions granted: (Yes/No)
+        
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Any other relevant details
+      placeholder: |
+        Optional information such as:
+        - Error logs, stack traces, console output
+        - Screenshots, recordings, or transcripts of the issue
+        - Related issues or discussions
+        - Workarounds discovered
+        - When this issue first appeared
