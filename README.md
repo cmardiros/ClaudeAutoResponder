@@ -231,6 +231,32 @@ swift send_keys.swift enter
 
 This approach provides reliable keystroke delivery without requiring accessibility permissions for most users.
 
+## Contributing
+
+### Reporting Issues
+
+When reporting bugs or issues, please use our GitHub issue template to provide complete technical context. This helps us debug and resolve problems quickly.
+
+**Before submitting an issue:**
+1. Check if it's already reported in [existing issues](https://github.com/yourusername/ClaudeAutoResponder/issues)
+2. Test with `--debug` flag to gather additional information
+3. Include your exact environment details (macOS version, terminal app, Python/Swift versions)
+
+**Common troubleshooting:**
+- Ensure Swift is available: `swift --version`
+- Verify Python dependencies: `pip show pyobjc-framework-Cocoa`
+- Test with single window first: `python3 claude_auto_responder.py --single --debug`
+
+### Issue Template
+
+Our bug report template automatically collects:
+- Complete environment context (macOS, Python, Swift, terminal app)
+- Exact reproduction steps with command lines
+- Debug output and system state
+- Clear verification criteria for fixes
+
+This ensures we can quickly reproduce and resolve issues.
+
 ## License
 
 MIT - Use freely!
